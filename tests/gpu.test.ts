@@ -19,12 +19,52 @@ function gpuDoc(mut?: (doc: EffectDoc) => void): EffectDoc {
 
 type Call = { count: number | "indirect" | null; batch?: number };
 
-/** Records compute dispatches instead of running them (arrays are one call with `batch` kernels). */
+type Read = { rb: { buffer: ArrayBuffer | null }; land: (u32: Uint32Array) => Promise<void> };
+
+/**
+ * Records compute dispatches instead of running them (arrays are one call with
+ * `batch` kernels; 2D dispatches record their [x, y, z]). Readbacks wait in
+ * `reads` until a test lands them with the u32 contents it wants.
+ */
 function fakeRenderer() {
-  const calls: Call[] = [];
-  const compute = (node: unknown, count: number | { isIndirectStorageBufferAttribute?: boolean } | null = null) =>
-    void calls.push({ count: typeof count === "object" && count?.isIndirectStorageBufferAttribute ? "indirect" : (count as number | null), ...(Array.isArray(node) ? { batch: node.length } : {}) });
-  return { calls, compute, backend: { isWebGPUBackend: true } } as unknown as THREE.WebGPURenderer & { calls: Call[] };
+  const calls: (Call | { count: number[] })[] = [];
+  const reads: Read[] = [];
+  const compute = (node: unknown, count: number | number[] | { isIndirectStorageBufferAttribute?: boolean } | null = null) =>
+    void calls.push(
+      Array.isArray(count)
+        ? { count }
+        : { count: typeof count === "object" && count?.isIndirectStorageBufferAttribute ? "indirect" : (count as number | null), ...(Array.isArray(node) ? { batch: node.length } : {}) },
+    );
+  const getArrayBufferAsync = (_attr: unknown, rb: Read["rb"]) =>
+    new Promise<void>((resolve) => {
+      reads.push({
+        rb,
+        land: async (u32) => {
+          rb.buffer = u32.buffer as ArrayBuffer;
+          resolve();
+          await Promise.resolve();
+          await Promise.resolve();
+        },
+      });
+    });
+  return { calls, reads, compute, getArrayBufferAsync, backend: { isWebGPUBackend: true } } as unknown as THREE.WebGPURenderer & { calls: Call[]; reads: Read[] };
+}
+
+/** The u32 counters GpuBounds reads back, for lanes given as [minX, minY, minZ, maxX, maxY, maxZ, maxSpeed, maxSize] (null = empty). */
+function boundsWords(lanes: (number[] | null)[]): Uint32Array {
+  const enc = (f: number) => {
+    const u = new Uint32Array(new Float32Array([f]).buffer)[0];
+    return f >= 0 ? (u | 0x80000000) >>> 0 : ~u >>> 0;
+  };
+  const out = new Uint32Array(lanes.length * 8);
+  lanes.forEach((l, i) => {
+    if (!l) {
+      out.fill(0xffffffff, i * 8, i * 8 + 3);
+      return;
+    }
+    l.forEach((v, k) => (out[i * 8 + k] = enc(k === 6 ? v * v : v)));
+  });
+  return out;
 }
 
 /** A rocket → burst pair on the GPU: bursts spawn from rocket deaths. */
@@ -207,8 +247,8 @@ describe("GPU sorting", () => {
     // the pool sorts every lane together: 4 lanes × 1000 → 4096 keys
     expect(pool.sorter!.size).toBe(4096);
     expect(pool.sorter!.passes).toBe(78); // log2(4096) = 12 → 12·13/2
-    // clear, prep, init, update, then key + 78 passes + 2 gather halves in one call
-    expect(r.calls.at(-1)).toEqual({ count: null, batch: 81 });
+    // clear, prep, init, update, then key + 78 passes + 2 gather halves in one call (then the culling bounds)
+    expect(r.calls.find((c) => "batch" in c && c.batch! > 4)).toEqual({ count: null, batch: 81 });
     const [sorted, plain] = pool.meshes;
     expect(sorted.geometry.getAttribute("pA")).toBe(pool.sorter!.attrs[0]);
     expect(plain.geometry.getAttribute("pA")).toBe(pool.attributes[0]);
@@ -462,7 +502,7 @@ describe("GPU sort groups", () => {
     expect(w.stats.drawCalls).toBe(1);
     // gather (fill + CPU copy + pool copy) in one call, then key + passes + gather halves in another
     expect(r.calls.at(-2)).toEqual({ count: null, batch: 3 });
-    expect(r.calls.at(-1)?.batch).toBeGreaterThan(3);
+    expect((r.calls.at(-1) as Call).batch).toBeGreaterThan(3);
   });
 
   it("falls back to CPU sorting when the last GPU member leaves", () => {
@@ -476,5 +516,105 @@ describe("GPU sort groups", () => {
     expect(named(w, "particles:group:fx")!.visible).toBe(true);
     expect(named(w, "particles:group:fx:gpu")!.visible).toBe(false);
     expect(w.stats.drawCalls).toBe(1);
+  });
+});
+
+describe("GPU frustum culling", () => {
+  // the default camera sits at the origin looking down -z: z = -10 is in view, z = +10 behind it
+  const setup = (mut?: (d: EffectDoc) => void) => {
+    const r = fakeRenderer();
+    const w = new ParticleWorld({ renderer: r });
+    const cam = new THREE.PerspectiveCamera();
+    const h = w.spawn(gpuDoc(mut), { autoRelease: false, position: { x: 0, y: 0, z: 10 } });
+    const lane = h.sim!.emitters[0].gpu as GpuEmitter;
+    const visibleFlag = () => lane.pool.laneData[lane.lane * lane.pool.layout.width + 19];
+    return { r, w, cam, h, lane, visibleFlag };
+  };
+  const behind = [-1, -1, 9, 1, 1, 11, 0, 0.1];
+  const ahead = [-1, -1, -11, 1, 1, -9, 0, 0.1];
+
+  it("measures bounds with one 2D dispatch per pool, one read in flight", () => {
+    const { r, w, cam } = setup();
+    w.update(1 / 60, cam);
+    expect(r.calls.at(-1)).toEqual({ count: [Math.ceil(1000 / 64), 1, 1] });
+    expect(r.reads).toHaveLength(1);
+    w.update(1 / 60, cam);
+    w.update(1 / 60, cam);
+    expect(r.reads).toHaveLength(1); // still waiting: no new measurement
+  });
+
+  it("keeps instances visible until bounds arrive, then culls them, hides their lanes and skips the draw", async () => {
+    const { r, w, cam, h, visibleFlag } = setup();
+    w.update(1 / 60, cam);
+    expect(h.culled).toBe(false);
+    expect(w.stats.culledInstances).toBe(0);
+    await r.reads[0].land(boundsWords([behind]));
+    w.update(1 / 60, cam);
+    expect(w.stats.culledInstances).toBe(1);
+    w.update(1 / 60, cam); // the lane flag follows a frame later
+    expect(visibleFlag()).toBe(0);
+    expect(w.stats.drawCalls).toBe(0);
+  });
+
+  it("culls with the measured box, not the effect's position", async () => {
+    const { r, w, cam, visibleFlag } = setup();
+    w.update(1 / 60, cam);
+    // the effect sits behind the camera, but its particles were measured ahead of it
+    await r.reads[0].land(boundsWords([ahead]));
+    w.update(1 / 60, cam);
+    w.update(1 / 60, cam);
+    expect(w.stats.culledInstances).toBe(0);
+    expect(visibleFlag()).toBe(1);
+    expect(w.stats.drawCalls).toBe(1);
+  });
+
+  it("widens old bounds by the instance's movement since they were measured", async () => {
+    const { r, w, cam, h } = setup();
+    w.update(1 / 60, cam);
+    await r.reads[0].land(boundsWords([behind]));
+    w.update(1 / 60, cam);
+    expect(w.stats.culledInstances).toBe(1);
+    // the instance jumps in front of the camera; the box (still the old reading) moves with it
+    h.setPosition(0, 0, -10);
+    w.update(1 / 60, cam);
+    expect(w.stats.culledInstances).toBe(0);
+  });
+
+  it("an empty reading is a point at the instance", async () => {
+    const { r, w, cam } = setup();
+    w.update(1 / 60, cam);
+    await r.reads[0].land(boundsWords([null]));
+    w.update(1 / 60, cam);
+    expect(w.stats.culledInstances).toBe(1);
+  });
+
+  it("pauseOffscreen stops stepping culled looping GPU instances", async () => {
+    const { r, w, cam, h } = setup((d) => void (d.scalability = { pauseOffscreen: true }));
+    w.update(1 / 60, cam);
+    await r.reads[0].land(boundsWords([behind]));
+    w.update(1 / 60, cam);
+    const t = h.sim!.emitters[0].time;
+    w.update(1 / 60, cam);
+    w.update(1 / 60, cam);
+    expect(h.sim!.emitters[0].time).toBe(t);
+  });
+
+  it("drops a reading whose lane changed hands before it landed", async () => {
+    const { r, w, cam, h } = setup();
+    w.update(1 / 60, cam);
+    h.release();
+    const h2 = w.spawn(gpuDoc(), { autoRelease: false, position: { x: 0, y: 0, z: 10 } });
+    expect((h2.sim!.emitters[0].gpu as GpuEmitter).lane).toBe(0);
+    await r.reads[0].land(boundsWords([behind]));
+    w.update(1 / 60, cam);
+    expect(w.stats.culledInstances).toBe(0); // the new instance hasn't been measured yet
+  });
+
+  it("does nothing without a camera or with frustumCulling off", () => {
+    const r = fakeRenderer();
+    const w = new ParticleWorld({ renderer: r, frustumCulling: false });
+    w.spawn(gpuDoc());
+    w.update(1 / 60, new THREE.PerspectiveCamera());
+    expect(r.reads).toHaveLength(0);
   });
 });

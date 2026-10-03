@@ -148,7 +148,9 @@ shattering asteroid shedding dust) can stay entirely on the GPU. GPU instances o
 pool and draw call, so many copies of a GPU effect are fine too: engine glow on every ship of a fleet, running lights
 along a station. Set `scalability.maxInstances` on those to size the pool up front. Each instance reserves its full
 `maxParticles`, so keep that tight. GPU emitters can have ribbons and join sort groups with CPU effects, so a GPU
-smoke column and a CPU explosion in the same group still blend in depth order.
+smoke column and a CPU explosion in the same group still blend in depth order. GPU instances are frustum-culled
+too (bounds measured on the GPU, a few frames late, widened for the delay), so `pauseOffscreen` works for ambient
+GPU effects behind the camera.
 Play each GPU effect once during loading: three compiles compute pipelines on first use.
 
 ## Worker simulation

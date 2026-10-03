@@ -24,13 +24,19 @@ function channel() {
   return { port, framesSent: () => sent };
 }
 
-const settle = () => new Promise((r) => setTimeout(r, 5));
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Waits for the in-flight frame's result (polling: under parallel test load a fixed delay can be too short). */
+async function settle(w?: WorkerParticleWorld) {
+  await sleep(5);
+  for (let i = 0; i < 200 && w?.busy; i++) await sleep(5);
+}
 
 /** Steps the main world and waits for each result, like frames arriving over time. */
 async function frames(w: WorkerParticleWorld, n: number, camera?: THREE.Camera) {
   for (let i = 0; i < n; i++) {
     w.update(1 / 60, camera);
-    await settle();
+    await settle(w);
   }
 }
 
@@ -125,9 +131,9 @@ describe("WorkerParticleWorld", () => {
     for (let i = 0; i < 5; i++) w.update(1 / 60); // no waiting: only the first is sent
     expect(framesSent()).toBe(1);
     expect(w.busy).toBe(true);
-    await settle();
+    await settle(w);
     w.update(1 / 60); // sends the accumulated 5/60 s
-    await settle();
+    await settle(w);
     expect(framesSent()).toBe(2);
     expect(h.particleCount).toBeGreaterThanOrEqual(55); // 600/s × 6/60 s
   });
@@ -139,7 +145,7 @@ describe("WorkerParticleWorld", () => {
     w.update(1 / 60);
     w.register(fountain("b")); // layout changes while the frame is in flight
     w.spawn("b");
-    await settle();
+    await settle(w);
     await frames(w, 10);
     const meshes = w.object.children as THREE.Mesh<THREE.InstancedBufferGeometry>[];
     expect(meshes).toHaveLength(2);

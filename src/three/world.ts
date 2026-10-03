@@ -583,7 +583,8 @@ export class ParticleWorld {
       const farCulled = !!(view && sc?.cullDistance && dist > sc.cullDistance);
       h._culled = farCulled;
       const gpu = this.#gpuOf.get(sim);
-      if (gpu) for (const g of gpu.lanes) g.begin(!farCulled);
+      // (frustum visibility is last frame's: GPU bounds arrive late anyway)
+      if (gpu) for (const g of gpu.lanes) g.begin(!farCulled && h._visible);
       // looping effects pause while out of range, or off-screen when asked to
       if (farCulled && reg.looping) continue;
       // paused, not culled: its frozen bounds are still frustum-tested below, so it resumes once in view
@@ -630,8 +631,9 @@ export class ParticleWorld {
     for (const g of this.#groups.values()) g.batch.begin();
     // GPU pools: every instance's kernels at once, after all of them have stepped
     const renderer = this.#opts.renderer!;
+    const now = this.time.value;
     for (const set of this.#gpuSets) {
-      set.dispatch(renderer, view);
+      set.dispatch(renderer, view, !!frustum, now);
       set.updateMeshes(null);
     }
     for (const h of active) {
@@ -642,18 +644,21 @@ export class ParticleWorld {
         continue;
       }
       const gpu = this.#gpuOf.get(sim);
-      if (gpu) {
-        // the CPU can't see GPU particles: always "visible" (culled lanes hide on the GPU); local-space pools follow the effect
-        for (const g of gpu.lanes) drawn += g.emitter.particleCount;
-        gpu.local?.updateMeshes(sim.matrix);
-      }
-      if (frustum && !gpu) {
-        h._visible = sim.worldBounds(bb) && frustum.intersectsBox(box.set(box.min.set(bb[0], bb[1], bb[2]), box.max.set(bb[3], bb[4], bb[5])));
-        if (!h._visible) {
+      // local-space pools follow the effect
+      gpu?.local?.updateMeshes(sim.matrix);
+      if (frustum) {
+        const inBox = () => frustum.intersectsBox(box.set(box.min.set(bb[0], bb[1], bb[2]), box.max.set(bb[3], bb[4], bb[5])));
+        let vis = sim.worldBounds(bb) && inBox();
+        // GPU lanes: boxes from bounds read back a few frames ago, widened for the delay (unmeasured = visible).
+        // Hidden lanes take effect next frame (begin()), as does pauseOffscreen.
+        if (!vis && gpu) for (const g of gpu.lanes) if (!g.cullBox(bb, now, sim.transform.position) || inBox()) vis = true;
+        h._visible = vis;
+        if (!vis) {
           culled++;
           continue;
         }
       } else h._visible = true;
+      if (gpu) for (const g of gpu.lanes) drawn += g.emitter.particleCount;
       const perEmitter = this.#effects.get(h.effectId)!.emitterBatches;
       for (const e of sim.emitters) {
         const list = perEmitter[e.template.index];

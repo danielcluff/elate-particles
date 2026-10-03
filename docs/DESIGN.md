@@ -169,8 +169,8 @@ const world = new ParticleWorld({ renderer }); // the WebGPURenderer, needed to 
 - **What the CPU knows.** It can't see GPU particles, so it keeps an upper-bound live count from spawn records and the
   largest lifetime evaluated. Spawn records also flow along sub-emitter links: a target counts `count` particles per
   source particle, born up to one source lifetime later for death events. That drives stats, the budget and when an
-  effect finishes. GPU emitters skip frustum culling; distance culling and LOD still apply through the effect's
-  position.
+  effect finishes. Distance culling and LOD apply through the effect's position; frustum culling uses bounds read
+  back from the GPU (below).
 - **Falls back to the CPU** (one warning listing the reasons) for: no `renderer` option, the WebGL fallback backend,
   sorted ribbons, modules without a GPU implementation, more than 3 sub-emitter targets, or a sub-emitter partner
   (source or target) that stays on the CPU. Events don't cross between the two simulators, so
@@ -261,6 +261,36 @@ joins, the group sorts and draws on the GPU (`GpuSortGroup`):
 When the last GPU member leaves, the group goes back to sorting on the CPU. A browser readback of the playground's
 GPU scene (CPU campfire fire/smoke/embers plus GPU smoke in group `fx`) showed 25,047 particles from four members in
 one draw, with zero depth inversions and 283 switches between members along the draw order.
+
+#### GPU frustum culling
+
+The CPU can't see GPU particles, so each pool measures them:
+
+1. **Measure.** While the world frustum-culls, a pool with no read in flight resets 8 counters per lane, then runs a
+   2D dispatch: one 64-thread workgroup per chunk of a lane (`y` = lane), so a workgroup never spans two instances.
+   Each workgroup reduces its particles' world AABB, max speed² and max size in workgroup memory (6 halving steps
+   with barriers, no early returns, so control flow stays uniform). It then does one `atomicMin`/`atomicMax` per
+   value, on floats mapped to order-preserving u32. Local-space pools are moved to world space with their lane rows.
+2. **Read back.** The counters are copied into a reused `ReadbackBuffer`, with one read in flight per pool. When it
+   lands a few frames later, each lane's result goes to the instance that owned the lane when measured. If the lane
+   changed hands in between, the result is dropped.
+3. **Cull.** The world tests a conservative box per lane:
+   - the measured box, widened by max size × the template's size margin, and by max speed × (trail/stretch reach +
+     the reading's age + a frame);
+   - joined with itself shifted by the instance's movement since the measurement, which covers particles that
+     follow or spawn around it.
+
+   An unmeasured lane counts as visible. An empty reading is a point at the instance.
+4. **Act.** A culled instance counts in `culledInstances`. From the next frame its lane hides on the GPU (the same
+   negative-size flag as distance culling). A pool whose used lanes are all hidden skips its draw. Looping effects
+   with `pauseOffscreen` stop stepping (their lane gets dt 0).
+
+Checked in the browser:
+- A torch's cull box contained its real particle extent with about 0.15 units of margin per side.
+- Looking along the edge of a 20 × 20 torch grid culled 369 of 401 instances. Not one culled torch had a particle in
+  view, and no off-screen torch was kept.
+- Turning back un-culled within 5 frames.
+- CPU cost: about 0.14 ms per frame for 400 instances (1.95 vs 1.81 ms with no camera).
 
 #### GPU sub-emitters
 
@@ -537,8 +567,9 @@ else is ~15–20 ns per particle.
 
 **Known gaps:** none from the original list. All six runtime gaps (renderers, sorting, soft particles, budget/LOD,
 multiple renderers, GPU and worker simulation) are closed, and GPU emitters now cover sub-emitters, sorting,
-curves over age, batching across instances, ribbons and sort groups. Candidates next: GPU frustum culling (bounds via
-atomics), shrinking GPU pools after a peak, sorted GPU ribbons, and per-particle lights.
+curves over age, batching across instances, ribbons, sort groups and frustum culling. Candidates next: shrinking GPU
+pools after a peak, sorted GPU ribbons, skipping culled lanes' vertex work (indirect draws per lane range), and
+per-particle lights.
 
 ### three.js and framework compatibility
 

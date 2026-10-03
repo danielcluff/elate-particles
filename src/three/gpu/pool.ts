@@ -52,6 +52,7 @@ import { GpuBuildContext, LANE, LaneLayout, LaneValues, rotateQ, type FrameInfo,
 import { getGpuModule } from "./modules";
 import { GpuSorter } from "./sort";
 import type { RibbonSource } from "../materials/ribbon";
+import { GpuBounds, type LaneBounds } from "./bounds";
 import { emitterRibbonSource, recordTrail, trailRibbonSource, trailStride } from "./ribbon";
 import "./modules";
 
@@ -181,9 +182,13 @@ export class GpuPoolSet {
     this.#owners.length = this.lanes;
   }
 
-  /** Runs this frame's kernels for every pool (emitter order). */
-  dispatch(renderer: THREE.WebGPURenderer, view: SortView | null): void {
-    for (const p of this.pools) p._dispatch(renderer, view);
+  /**
+   * Runs this frame's kernels for every pool (emitter order). With `cull`,
+   * pools also measure their lanes' bounds for frustum culling (read back a
+   * few frames later); `now` is the world time the measurement is stamped with.
+   */
+  dispatch(renderer: THREE.WebGPURenderer, view: SortView | null, cull = false, now = 0): void {
+    for (const p of this.pools) p._dispatch(renderer, view, cull, now);
   }
 
   /** Shows the meshes while any lane is in use, drawing only up to the highest one; `matrix` places a single-instance (local-space) set. */
@@ -196,8 +201,11 @@ export class GpuPoolSet {
       }
     for (const p of this.pools) {
       p.span = span;
+      // every used lane hidden (frustum- or distance-culled): skip the draw
+      let shown = false;
+      for (let l = 0; l < span && !shown; l++) shown = !!this.#owners[l] && p.laneData[l * p.layout.width + LANE.visible] > 0;
       p.meshes.forEach((m, k) => {
-        m.visible = span > 0;
+        m.visible = shown;
         // sorted copies hold every live particle first, so the same count covers them
         (m.geometry as THREE.InstancedBufferGeometry).instanceCount = span * p.laneCap * p.instancesPerSlot(k);
         if (matrix && p.template.space === "local") m.matrix.fromArray(matrix);
@@ -241,6 +249,8 @@ export class GpuPool {
   readonly #sortedDraw: boolean[];
   /** Per-particle trail rings (ribbon mode "particle"), else null. */
   #trail: THREE.StorageBufferAttribute | null = null;
+  /** Bounds measurement for frustum culling, created when the world first culls. */
+  #bounds: GpuBounds | null = null;
   readonly #trailPoints: number;
   /** Ribbon meshes' materials are built per pool from its buffers; null = rebuild on the next dispatch. */
   #ribbonsStale = true;
@@ -420,6 +430,8 @@ export class GpuPool {
     this.#laneTex.dispose();
     this.#laneTex = this.#newLaneTex();
     this.#disposeKernels();
+    this.#bounds?.dispose();
+    this.#bounds = null;
     this.#setGeometries();
     for (let l = oldCount / this.laneCap; l < lanes; l++) this.clearLane(l);
   }
@@ -775,7 +787,7 @@ export class GpuPool {
   }
 
   /** @internal Writes lane rows and runs this frame's kernels. */
-  _dispatch(renderer: THREE.WebGPURenderer, view: SortView | null): void {
+  _dispatch(renderer: THREE.WebGPURenderer, view: SortView | null, cull = false, now = 0): void {
     const owners = this.#owners;
     let any = this.#clearPending;
     for (let l = 0; l < this.lanes && !any; l++) any = owners[l] !== null && owners[l] !== undefined;
@@ -817,11 +829,37 @@ export class GpuPool {
       }
     if (span > 0) renderer.compute(k.update, span * this.laneCap);
     k.sorter?.run(renderer, view);
+    if (cull && span > 0) this.#measure(renderer, span, now);
 
     if (this.#clearPending) {
       for (let l = 0; l < this.lanes; l++) data[l * W + LANE.clear] = 0;
       this.#clearPending = false;
     }
+  }
+
+  /** Starts a bounds measurement unless one is still being read back; results go to the lanes' current owners. */
+  #measure(renderer: THREE.WebGPURenderer, span: number, now: number): void {
+    this.#bounds ??= new GpuBounds({
+      attrs: this.#attrs,
+      capacity: this.capacity,
+      laneCap: this.laneCap,
+      lanes: this.lanes,
+      local: this.template.space === "local",
+      lane: (l) => this.laneValues(l),
+    });
+    const b = this.#bounds;
+    if (b.busy) return;
+    // who owned each lane, and where its instance was, when measured (lanes can change hands before the read lands)
+    const W = this.layout.width;
+    const owners = this.#owners.slice(0, span);
+    const at = owners.map((_, l) => [this.laneData[l * W + LANE.position], this.laneData[l * W + LANE.position + 1], this.laneData[l * W + LANE.position + 2]]);
+    b.run(renderer, span, (lanes: LaneBounds[]) => {
+      if (this.#bounds !== b) return;
+      lanes.forEach((lb, l) => {
+        const g = owners[l];
+        if (g && this.#owners[l] === g) g._setBounds(lb, now, at[l]);
+      });
+    });
   }
 
   /** (Re)builds ribbon materials over the current buffers. */
@@ -852,6 +890,8 @@ export class GpuPool {
 
   dispose(): void {
     this.#disposeKernels();
+    this.#bounds?.dispose();
+    this.#bounds = null;
     this.meshes.forEach((m, k) => {
       m.removeFromParent();
       m.geometry.dispose();
@@ -891,6 +931,8 @@ export class GpuEmitter implements GpuSpawnTarget {
   #maxLife = 0;
   readonly #lastPos: [number, number, number] = [0, 0, 0];
   readonly #frame: FrameInfo = { cycleT: 0, params: {} };
+  /** The latest bounds read back for this lane: when (world time) and where the instance was then. */
+  #bounds: { lb: LaneBounds; t: number; at: number[] } | null = null;
 
   constructor(pool: GpuPool, lane: number, emitter: EmitterSim) {
     this.pool = pool;
@@ -947,6 +989,44 @@ export class GpuEmitter implements GpuSpawnTarget {
     this.pool.clearLane(this.lane);
     this.#pending = 0;
     this.#records = [];
+    this.#bounds = null;
+  }
+
+  /** @internal a bounds read landed */
+  _setBounds(lb: LaneBounds, t: number, at: number[]): void {
+    this.#bounds = { lb, t, at };
+  }
+
+  /**
+   * A conservative world box for this lane now, from the latest read-back
+   * bounds: widened by the largest particle (× the template's size margin),
+   * by how far the fastest particle can have moved since the measurement (plus
+   * trail/stretch reach), and joined with itself moved by the instance's
+   * displacement since (particles that follow or spawn around the instance).
+   * False when nothing has been measured yet (callers treat that as visible);
+   * an empty measurement is a point at the instance.
+   */
+  cullBox(out: Float32Array | number[], now: number, position: ArrayLike<number>): boolean {
+    const b = this.#bounds;
+    if (!b) return false;
+    const tpl = this.template;
+    const { lb, at } = b;
+    const dx = position[0] - at[0], dy = position[1] - at[1], dz = position[2] - at[2];
+    if (lb.empty) {
+      const m = lb.maxSize * tpl.sizeMargin + 0.5;
+      for (let k = 0; k < 3; k++) {
+        out[k] = position[k] - m;
+        out[k + 3] = position[k] + m;
+      }
+      return true;
+    }
+    const m = lb.maxSize * tpl.sizeMargin + lb.maxSpeed * (tpl.speedMargin + Math.max(0, now - b.t) + 1 / 30);
+    const d = [dx, dy, dz];
+    for (let k = 0; k < 3; k++) {
+      out[k] = Math.min(lb.box[k], lb.box[k] + d[k]) - m;
+      out[k + 3] = Math.max(lb.box[k + 3], lb.box[k + 3] + d[k]) + m;
+    }
+    return true;
   }
 
   // ---- per frame -------------------------------------------------------------
