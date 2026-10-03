@@ -99,11 +99,22 @@ export abstract class InstanceBatch {
 
   /** Grows the GPU buffer (doubling) so `needed` instances fit. Rare: allocates. */
   protected ensure(needed: number): void {
-    if (needed <= this.#capacity) return;
+    if (needed <= this.#capacity && this.data.length === this.#capacity * this.#stride) return;
     let cap = this.#capacity;
     while (cap < needed) cap *= 2;
     const data = new Float32Array(cap * this.#stride);
-    data.set(this.data.subarray(0, this.count * this.#stride));
+    if (this.data.length) data.set(this.data.subarray(0, this.count * this.#stride));
+    this.#setData(data);
+  }
+
+  /** Replaces the instance array; rebuilds the GPU buffer + geometry when the size changes. */
+  #setData(data: Float32Array): void {
+    const cap = data.length / this.#stride;
+    if (cap === this.#capacity && this.#buffer.array.length === data.length) {
+      this.data = data;
+      this.#buffer.array = data;
+      return;
+    }
     this.data = data;
     this.#capacity = cap;
     this.#buffer = this.#makeBuffer();
@@ -112,20 +123,60 @@ export abstract class InstanceBatch {
     old.dispose();
   }
 
+  // ---- worker hand-off (WorkerParticleWorld) ------------------------------------
+
+  #spare: Float32Array | null = null;
+
+  /**
+   * Worker side: hands this frame's packed array out (to be transferred) and
+   * switches to the spare the main thread returned, or a fresh array.
+   */
+  exportFrame(): { data: Float32Array; count: number } {
+    const out = { data: this.data, count: this.count };
+    const spare = this.#spare && this.#spare.length === this.data.length ? this.#spare : new Float32Array(this.data.length);
+    this.#spare = null;
+    this.data = spare;
+    this.#buffer.array = spare;
+    return out;
+  }
+
+  /** Worker side: an array the main thread is done with, reused by the next exportFrame. */
+  adoptSpare(data: Float32Array): void {
+    this.#spare = data;
+  }
+
+  /**
+   * Main side: takes a packed array from the worker as this frame's data and
+   * schedules the upload. Returns the array it replaced when it can be sent
+   * back for reuse (same size), else null.
+   */
+  adopt(data: Float32Array, count: number): Float32Array | null {
+    const old = this.data;
+    const reusable = old.length === data.length;
+    this.#setData(data);
+    this.count = count;
+    this.#upload();
+    return reusable ? old : null;
+  }
+
+  #upload(): void {
+    const n = this.count;
+    this.mesh.geometry.instanceCount = n;
+    this.mesh.visible = n > 0;
+    if (n === 0) return;
+    this.#buffer.clearUpdateRanges();
+    this.#buffer.addUpdateRange(0, n * this.#stride);
+    this.#buffer.needsUpdate = true;
+  }
+
   begin(): void {
     this.count = 0;
   }
 
   /** Finishes the frame: sorts (if the renderer asks for it) and schedules the upload. */
   end(view: SortView | null = null): void {
-    const n = this.count;
-    this.mesh.geometry.instanceCount = n;
-    this.mesh.visible = n > 0;
-    if (n === 0) return;
-    if (n > 1) this.#sort(n, view);
-    this.#buffer.clearUpdateRanges();
-    this.#buffer.addUpdateRange(0, n * this.#stride);
-    this.#buffer.needsUpdate = true;
+    if (this.count > 1) this.#sort(this.count, view);
+    this.#upload();
   }
 
   /** Reorders this frame's instances by the renderer's sort mode. Both layouts keep age at +3 and lifetime at +10. */

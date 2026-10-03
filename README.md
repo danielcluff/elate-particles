@@ -13,6 +13,8 @@ Data-driven particle effects for three.js (WebGPU / TSL).
   so smoke in front of fire actually dims it.
 - **GPU simulation** (`sim: "gpu"`) for huge emitters: TSL compute, same materials, CPU fallback. 240k particles at
   60 fps for 0.4 ms of CPU.
+- **Worker simulation** (`WorkerParticleWorld`): same API, CPU simulation in a Web Worker, packed arrays ping-ponged
+  back as transferables. ~7 ms of main-thread time freed in the stress scene.
 - **Batched rendering.** Every live instance of an emitter shares one instanced draw call, so 1,900 explosions render
   in 6 draw calls.
 - **Scalability**: a world particle budget (feedforward, no oscillation), quality tiers, distance LOD and culling,
@@ -71,7 +73,8 @@ executeCommand(fx, {
 | Import | Runs in | What |
 | --- | --- | --- |
 | `tsl-particles` | anywhere | Types, values, module registry, doc helpers, commands, CPU simulator. No three, no DOM |
-| `tsl-particles/three` | browser | `ParticleWorld`, `ParticleEffect`, TSL sprite material, batches |
+| `tsl-particles/three` | browser | `ParticleWorld`, `WorkerParticleWorld`, handles, materials, batches, GPU emitters |
+| `tsl-particles/worker` | worker | `startParticleWorker()` for the worker side of `WorkerParticleWorld` |
 
 `three >= 0.184` is a peer dependency. The package ships TypeScript source.
 
@@ -79,7 +82,7 @@ executeCommand(fx, {
 
 ```bash
 pnpm install
-pnpm dev                                   # playground: campfire, thruster, explosion, tracers, fireworks, gpu, stress
+pnpm dev                                   # playground: campfire, thruster, explosion, tracers, fireworks, gpu, stress (?worker=1: worker mode)
 pnpm test
 pnpm typecheck
 pnpm tsx scripts/bench.ts explosion 1000   # headless simulator benchmark

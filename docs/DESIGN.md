@@ -163,6 +163,56 @@ Measured (this machine, browser): a 250k-capacity swarm (60k/s, vortex + turbule
 **0.4 ms** of CPU time per frame and ~240k live particles. The same effect on the CPU took 22–62 ms per frame
 (1–15 fps) while still ramping up.
 
+### Worker simulation (`WorkerParticleWorld`)
+
+The same API as `ParticleWorld`, with the CPU simulation in a Web Worker:
+
+```ts
+// particles.worker.ts
+import { startParticleWorker } from "tsl-particles/worker";
+import "./my-custom-modules"; // custom modules must be registered in the worker too
+startParticleWorker();
+
+// main thread
+const world = new WorkerParticleWorld(new Worker(new URL("./particles.worker.ts", import.meta.url), { type: "module" }));
+scene.add(world.object);
+world.register(doc);
+const fx = world.spawn("explosion", { position });
+world.update(dt, camera); // each frame
+```
+
+- **A mirrored world.** The worker runs a complete `ParticleWorld`: LOD, budget, culling, sort groups, ribbons,
+  trails, sorting, everything. Its three.js objects are never rendered, and textures are placeholders. The main thread
+  keeps a render-only `ParticleWorld` (materials, meshes, GPU buffers) built from the *same registrations in the same
+  order*, so both produce identical batch lists (`_batchList()`, including sort-group member indices). No simulation
+  code is duplicated or forked.
+- **Each frame:**
+  1. The main thread sends `dt`, the camera matrices and queued handle commands. Transforms are coalesced to the last
+     one per frame, and a pending transform is sent before later commands on the same handle.
+  2. The worker steps, culls, sorts and packs.
+  3. The worker transfers each non-empty batch array.
+  4. The main thread adopts them (`InstanceBatch.adopt`: no copy) and schedules the GPU upload.
+- **Ping-pong transfers.** The array a main batch replaced goes back to the worker with the next frame
+  (`adoptSpare`), so steady state neither copies nor allocates. Plain transferables, so no `SharedArrayBuffer` and no
+  cross-origin-isolation headers are needed.
+- **At most one frame in flight.** If the worker falls behind, `dt` accumulates instead of queueing frames, so latency
+  can't grow. A registration made while a frame is in flight bumps a layout counter; that one stale result's arrays
+  are skipped, but its events still apply.
+- **Handles** (`WorkerParticleEffect`) have the `ParticleEffect` surface. `alive`, `particleCount`, `culled`,
+  `rejected` and `onFinished` come back with each result.
+- **Trade-off: one frame of latency.** Particles render the worker's previous frame, so effects attached to
+  fast-moving objects trail by a frame (a ship at 200 u/s moves ~3 units per frame). Both worlds can run side by side:
+  main thread for the player's own effects, worker for the rest.
+- **Not in worker mode:** GPU emitters (they need the renderer on the main thread; they fall back to CPU-in-worker
+  with a warning). Mesh geometries are registered on the main thread only; the worker doesn't need them.
+- Tests drive the host and client over an in-process channel that really transfers (detaches) buffers via
+  `structuredClone(..., { transfer })`, so a reuse-after-transfer bug would throw.
+
+Measured in the browser (stress scene, 200 explosions/s, ~33k particles, 800 instances): main-thread particle cost
+went from **7.3 ms** (sim + pack) to **0.01 ms** for `update()`, plus result handling below the ~0.1 ms timer
+resolution. That scene is GPU-bound, so frame rate is similar (52 vs 54 fps); the win is ~7 ms of main-thread time per
+frame back for game logic.
+
 ### Sorting
 
 `renderer.sort` (sprite, mesh, ribbon): `none` (default), `distance` (back to front along the camera's view direction;
@@ -331,9 +381,9 @@ Measured on this machine:
 `update.turbulence` is the most expensive built-in (three gradient-noise lookups per particle, ~90 ns). Everything
 else is ~15–20 ns per particle.
 
-**Known gaps, in priority order:**
-
-1. A **worker simulation** if main-thread time gets tight (SoA buffers are transferable).
+**Known gaps:** none from the original list. All six runtime gaps (renderers, sorting, soft particles, budget/LOD,
+multiple renderers, GPU and worker simulation) are closed. Candidates next: GPU sub-emitters (event buffers + atomics),
+batching GPU emitters across instances, and per-particle lights.
 
 ### three.js and framework compatibility
 
@@ -493,7 +543,7 @@ on it. That's the only change Phase 3 asks of tsl-graph.
 | --- | --- | --- |
 | **1** ✅ | Runtime library | Core, 20 modules, CPU sim, batched TSL sprite/mesh/ribbon renderers, Redshift adapter, examples, tests, playground |
 | 1.1 | Redshift adoption | Wire `ParticleWorld` into `Game.ts`; thrusters on ships; replace `EffectSpawner`; delete the old particle system |
-| 1.2 | Runtime gaps | ✅ mesh + ribbon renderers, per-particle trails, multiple renderers per emitter, sorting + sort groups, soft particles + camera fade, budget/LOD/culling |
+| 1.2 ✅ | Runtime gaps | mesh + ribbon renderers, per-particle trails, multiple renderers per emitter, sorting + sort groups, soft particles + camera fade, budget/LOD/culling, worker simulation |
 | **2** | Effect editor | Stack UI, value widgets, timeline, viewport, store and undo, MCP + AI chat, `particle` graph kind in tsl-graph |
 | 2.1 ✅ | GPU backend | TSL compute implementations for built-in modules, `sim: "gpu"` per emitter, CPU fallback |
 | **3** | FX studio | Monorepo, `studio-kit` extraction, asset model, prefabs, unified MCP, export bundle |

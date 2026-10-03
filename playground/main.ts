@@ -1,7 +1,7 @@
 import * as THREE from "three/webgpu";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { pass } from "three/tsl";
-import { ParticleWorld, type ParticleEffect } from "../src/three";
+import { ParticleWorld, WorkerParticleWorld, type ParticleEffect, type WorkerParticleEffect } from "../src/three";
 import { validateEffect } from "../src/index";
 import { ALL_EFFECTS, campfire, explosion, firework, swarm, thruster, tracer } from "./effects";
 
@@ -37,7 +37,12 @@ const sun = new THREE.DirectionalLight(0xffeedd, 2.5);
 sun.position.set(5, 10, 4);
 scene.add(sun);
 
-const world = new ParticleWorld({ renderer });
+// ?worker=1 runs the CPU simulation in a Web Worker (same API)
+const useWorker = new URLSearchParams(location.search).has("worker");
+const world = useWorker
+  ? new WorkerParticleWorld(new Worker(new URL("./particles.worker.ts", import.meta.url), { type: "module" }))
+  : new ParticleWorld({ renderer });
+type Handle = ParticleEffect | WorkerParticleEffect;
 scene.add(world.object);
 const registerAll = () => {
   for (const fx of ALL_EFFECTS) {
@@ -50,7 +55,7 @@ const registerAll = () => {
 // ---- scenes ----------------------------------------------------------------
 
 type Scene = { enter(): void; update(dt: number, t: number): void; exit(): void };
-let live: ParticleEffect[] = [];
+let live: Handle[] = [];
 const clearLive = () => {
   for (const h of live) h.release();
   live = [];
@@ -179,7 +184,7 @@ const scenes: Record<string, Scene> = {
   },
 };
 let timer = 0;
-const bolts: { h: ParticleEffect; pos: THREE.Vector3; dir: THREE.Vector3; t: number }[] = [];
+const bolts: { h: Handle; pos: THREE.Vector3; dir: THREE.Vector3; t: number }[] = [];
 
 const ship = new THREE.Mesh(new THREE.ConeGeometry(0.3, 1.2, 8).rotateX(Math.PI / 2), new THREE.MeshBasicNodeMaterial({ color: 0x8899aa, wireframe: true }));
 ship.visible = false;
@@ -243,7 +248,9 @@ renderer.setAnimationLoop(() => {
   if (acc >= 0.5) {
     const s = world.stats;
     stats.textContent =
-      `${Math.round(frames / acc)} fps · sim+pack ${(simMs / frames).toFixed(2)} ms · ${s.particles} simulated / ${s.drawnParticles} drawn · ` +
+      `${useWorker ? "[worker] " : ""}${Math.round(frames / acc)} fps · ${useWorker ? "main thread" : "sim+pack"} ${(simMs / frames).toFixed(2)} ms` +
+      (world instanceof WorkerParticleWorld ? ` + apply ${world.lastApplyMs.toFixed(2)} ms` : "") +
+      ` · ${s.particles} simulated / ${s.drawnParticles} drawn · ` +
       `${s.instances} instances (${s.culledInstances} culled) · ${s.drawCalls} draws` +
       (world.budget ? ` · budget scale ${s.budgetScale.toFixed(2)}` : "");
     frames = 0;

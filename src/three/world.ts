@@ -60,6 +60,8 @@ export interface ParticleWorldOptions {
    * dispatch). Without it, or on the WebGL fallback, they run on the CPU.
    */
   renderer?: THREE.WebGPURenderer;
+  /** Suppress console warnings (the worker's mirror world: the main thread already reports them). */
+  silent?: boolean;
 }
 
 export interface SpawnOptions {
@@ -251,7 +253,7 @@ export class ParticleWorld {
     const registered = this.#geometries.get(name);
     if (registered) return () => registered.clone();
     if (createBuiltinMesh(name)) return () => createBuiltinMesh(name)!;
-    console.warn(`tsl-particles: mesh "${name}" is not registered (emitter "${e.doc.name}"); drawing boxes until it is`);
+    this.#warn(`tsl-particles: mesh "${name}" is not registered (emitter "${e.doc.name}"); drawing boxes until it is`);
     return () => createBuiltinMesh("box")!;
   }
 
@@ -335,7 +337,7 @@ export class ParticleWorld {
             list.push({ batch: group.batch, member });
             continue;
           }
-          console.warn(
+          this.#warn(
             `tsl-particles: "${doc.name}" / ${e.doc.name} can't join sort group "${r.sortGroup}" (its texture differs from the group's); drawn on its own`,
           );
         }
@@ -522,7 +524,7 @@ export class ParticleWorld {
     } else if (!this.#warnedNoCamera) {
       for (const reg of this.#effects.values())
         if (reg.template.emitters.some((em) => em.renderers.some((r) => r.sort === "distance" || (r.type === "sprite" && r.sortGroup)))) {
-          console.warn('tsl-particles: an emitter uses sort: "distance" or a sortGroup but ParticleWorld.update() was called without a camera; it is drawn unsorted');
+          this.#warn('tsl-particles: an emitter uses sort: "distance" or a sortGroup but ParticleWorld.update() was called without a camera; it is drawn unsorted');
           this.#warnedNoCamera = true;
           break;
         }
@@ -669,6 +671,22 @@ export class ParticleWorld {
 
   readonly #groups = new Map<string, SortGroup>();
 
+  #warn(...args: unknown[]): void {
+    if (!this.#opts.silent) console.warn(...args);
+  }
+
+  /**
+   * @internal Every CPU batch in a deterministic order (effects in registration
+   * order, then sort groups). WorkerParticleWorld relies on the main-thread and
+   * worker worlds producing identical lists from identical registrations.
+   */
+  _batchList(): InstanceBatch[] {
+    const out: InstanceBatch[] = [];
+    for (const reg of this.#effects.values()) out.push(...reg.batches);
+    for (const g of this.#groups.values()) out.push(g.batch);
+    return out;
+  }
+
   #group(name: string): SortGroup {
     let g = this.#groups.get(name);
     if (!g) {
@@ -708,7 +726,7 @@ export class ParticleWorld {
     const key = `${doc.id}/${e.id}`;
     if (!this.#gpuWarned.has(key)) {
       this.#gpuWarned.add(key);
-      console.warn(`tsl-particles: "${doc.name}" / ${e.doc.name} runs on the CPU instead of the GPU: ${reasons.join("; ")}`);
+      this.#warn(`tsl-particles: "${doc.name}" / ${e.doc.name} runs on the CPU instead of the GPU: ${reasons.join("; ")}`);
     }
     return false;
   }

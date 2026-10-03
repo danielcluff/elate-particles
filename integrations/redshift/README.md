@@ -145,6 +145,13 @@ Pass the renderer (`renderer: this.Renderer`) and big ambient effects can run on
 dust around a station, a debris field, a sun's corona. Keep gameplay effects (explosions, trails, impacts) on the CPU:
 they're small, many, batched, and use sub-emitters and ribbons, which the GPU path doesn't support.
 
+## Worker simulation
+
+Big battles can move particle simulation off the main thread: create a `WorkerParticleWorld` (see the design doc) for
+explosions, impacts and ambient effects, and keep a main-thread `ParticleWorld` for the player ship's thrusters and
+weapons. Worker results are a frame behind, which is invisible for effects that don't follow a fast mover. Register
+the same effect files in both if both may spawn them.
+
 ## Notes
 
 - **Units.** Effects are authored in world units. Use `scale` on spawn (or the component) to resize an effect per use,

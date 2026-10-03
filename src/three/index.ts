@@ -16,3 +16,4 @@ export type { ParticleMaterialContext as SpriteMaterialContext } from "./materia
 export { GpuEmitter, gpuSupport } from "./gpu/emitter";
 export { registerGpuModule, getGpuModule, type GpuModuleImpl } from "./gpu/modules";
 export { GpuBuildContext, type GpuParticle } from "./gpu/context";
+export { WorkerParticleWorld, WorkerParticleEffect, type ParticlePort, type WorkerParticleWorldOptions } from "./worker-world";
