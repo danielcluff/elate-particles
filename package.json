@@ -1,33 +1,33 @@
 {
-  "name": "tsl-particles",
-  "version": "0.1.0",
-  "description": "Data-driven particle effects for Three.js (WebGPU/TSL): serialisable effect documents, a module stack, a zero-allocation CPU simulator and batched instanced rendering.",
-  "type": "module",
-  "license": "GPL-3.0-or-later",
-  "exports": {
-    ".": "./src/index.ts",
-    "./sim": "./src/sim/index.ts",
-    "./three": "./src/three/index.ts",
-    "./worker": "./src/worker/index.ts"
-  },
-  "files": [
-    "src"
-  ],
-  "scripts": {
-    "dev": "vite playground",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
-  },
-  "peerDependencies": {
-    "three": ">=0.184.0"
-  },
-  "devDependencies": {
-    "@types/node": "^26.6.3",
-    "@types/three": "0.184.0",
-    "three": "0.184.0",
-    "tsx": "^4.23.15",
-    "typescript": "^5.9.3",
-    "vite": "^8.0.16",
-    "vitest": "^4.0.16"
-  }
+    "name": "elate-particles",
+    "version": "0.1.0",
+    "description": "Data-driven particle effects for Three.js (WebGPU/TSL): serialisable effect documents, a module stack, a zero-allocation CPU simulator and batched instanced rendering.",
+    "type": "module",
+    "license": "GPL-3.0-or-later",
+    "exports": {
+        ".": "./src/index.ts",
+        "./sim": "./src/sim/index.ts",
+        "./three": "./src/three/index.ts",
+        "./worker": "./src/worker/index.ts"
+    },
+    "files": [
+        "src"
+    ],
+    "scripts": {
+        "dev": "vite playground",
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run"
+    },
+    "peerDependencies": {
+        "three": ">=0.184.0"
+    },
+    "devDependencies": {
+        "@types/node": "^26.6.3",
+        "@types/three": "0.184.0",
+        "three": "0.184.0",
+        "tsx": "^4.23.15",
+        "typescript": "^5.9.3",
+        "vite": "^8.0.16",
+        "vitest": "^4.0.16"
+    }
 }
