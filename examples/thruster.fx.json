@@ -1,0 +1,315 @@
+{
+  "format": "tsl-particles",
+  "version": 1,
+  "id": "thruster",
+  "name": "Ship Thruster",
+  "emitters": [
+    {
+      "id": "exhaust",
+      "name": "exhaust",
+      "duration": 1,
+      "looping": true,
+      "startDelay": 0,
+      "maxParticles": 400,
+      "space": "world",
+      "spawn": [
+        {
+          "id": "exhaust.spawn.rate",
+          "type": "spawn.rate",
+          "params": {
+            "rate": {
+              "kind": "param",
+              "name": "throttle",
+              "scale": 160,
+              "offset": 10
+            }
+          }
+        }
+      ],
+      "init": [
+        {
+          "id": "exhaust.init.lifetime",
+          "type": "init.lifetime",
+          "params": {
+            "lifetime": {
+              "kind": "range",
+              "min": 0.25,
+              "max": 0.45
+            }
+          }
+        },
+        {
+          "id": "exhaust.init.shape",
+          "type": "init.shape",
+          "params": {
+            "shape": "cone",
+            "radius": 0.15,
+            "thickness": 1,
+            "angle": 6,
+            "arc": 360,
+            "boxSize": [
+              1,
+              1,
+              1
+            ],
+            "length": 1,
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              -90,
+              0,
+              0
+            ],
+            "speed": {
+              "kind": "param",
+              "name": "throttle",
+              "scale": 10,
+              "offset": 2
+            },
+            "randomDirection": 0
+          }
+        },
+        {
+          "id": "exhaust.init.size",
+          "type": "init.size",
+          "params": {
+            "size": {
+              "kind": "range",
+              "min": 0.25,
+              "max": 0.4
+            }
+          }
+        },
+        {
+          "id": "exhaust.init.color",
+          "type": "init.color",
+          "params": {
+            "color": {
+              "kind": "constant",
+              "color": "#ffffff",
+              "intensity": 3
+            }
+          }
+        },
+        {
+          "id": "exhaust.init.inheritVelocity",
+          "type": "init.inheritVelocity",
+          "params": {
+            "factor": 0.4
+          }
+        }
+      ],
+      "update": [
+        {
+          "id": "exhaust.update.drag",
+          "type": "update.drag",
+          "params": {
+            "drag": 2
+          }
+        }
+      ],
+      "render": [
+        {
+          "id": "exhaust.render.sizeOverLife",
+          "type": "render.sizeOverLife",
+          "params": {
+            "curve": {
+              "keys": [
+                {
+                  "t": 0,
+                  "v": 1
+                },
+                {
+                  "t": 1,
+                  "v": 0.2
+                }
+              ],
+              "interp": "smooth"
+            }
+          }
+        },
+        {
+          "id": "exhaust.render.colorOverLife",
+          "type": "render.colorOverLife",
+          "params": {
+            "gradient": {
+              "colors": [
+                {
+                  "t": 0,
+                  "color": "#ffffff"
+                },
+                {
+                  "t": 0.25,
+                  "color": "#66ccff"
+                },
+                {
+                  "t": 1,
+                  "color": "#0b2cff"
+                }
+              ],
+              "alphas": [
+                {
+                  "t": 0,
+                  "a": 1
+                },
+                {
+                  "t": 1,
+                  "a": 0
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "renderer": {
+        "type": "sprite",
+        "blend": "additive",
+        "shape": "glow",
+        "facing": "camera"
+      }
+    },
+    {
+      "id": "trail",
+      "name": "trail",
+      "duration": 1,
+      "looping": true,
+      "startDelay": 0,
+      "maxParticles": 600,
+      "space": "world",
+      "spawn": [
+        {
+          "id": "trail.spawn.distance",
+          "type": "spawn.distance",
+          "params": {
+            "perUnit": 4
+          }
+        }
+      ],
+      "init": [
+        {
+          "id": "trail.init.lifetime",
+          "type": "init.lifetime",
+          "params": {
+            "lifetime": {
+              "kind": "range",
+              "min": 1.2,
+              "max": 1.8
+            }
+          }
+        },
+        {
+          "id": "trail.init.shape",
+          "type": "init.shape",
+          "params": {
+            "shape": "sphere",
+            "radius": 0.1,
+            "thickness": 1,
+            "angle": 25,
+            "arc": 360,
+            "boxSize": [
+              1,
+              1,
+              1
+            ],
+            "length": 1,
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "speed": 0.2,
+            "randomDirection": 0
+          }
+        },
+        {
+          "id": "trail.init.size",
+          "type": "init.size",
+          "params": {
+            "size": 0.25
+          }
+        },
+        {
+          "id": "trail.init.color",
+          "type": "init.color",
+          "params": {
+            "color": {
+              "kind": "constant",
+              "color": "#88aaff",
+              "alpha": 0.35
+            }
+          }
+        }
+      ],
+      "update": [],
+      "render": [
+        {
+          "id": "trail.render.sizeOverLife",
+          "type": "render.sizeOverLife",
+          "params": {
+            "curve": {
+              "keys": [
+                {
+                  "t": 0,
+                  "v": 1
+                },
+                {
+                  "t": 1,
+                  "v": 2.5
+                }
+              ],
+              "interp": "smooth"
+            }
+          }
+        },
+        {
+          "id": "trail.render.colorOverLife",
+          "type": "render.colorOverLife",
+          "params": {
+            "gradient": {
+              "colors": [
+                {
+                  "t": 0,
+                  "color": "#ffffff"
+                }
+              ],
+              "alphas": [
+                {
+                  "t": 0,
+                  "a": 1
+                },
+                {
+                  "t": 1,
+                  "a": 0
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "renderer": {
+        "type": "sprite",
+        "blend": "additive",
+        "shape": "softCircle",
+        "facing": "camera"
+      }
+    }
+  ],
+  "parameters": [
+    {
+      "name": "throttle",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 1,
+      "description": "Engine output 0..1"
+    }
+  ]
+}
