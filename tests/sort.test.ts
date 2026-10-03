@@ -35,7 +35,7 @@ function smoke(sort: SortMode): EffectDoc {
   e.looping = false;
   e.spawn.push(createModule("spawn.burst", { count: 1 }));
   e.init.push(createModule("init.shape", { shape: "point", speed: 0 }), createModule("init.lifetime", { lifetime: 10 }));
-  e.renderer = { type: "sprite", blend: "alpha", shape: "softCircle", facing: "camera", sort };
+  e.renderers = [{ type: "sprite", blend: "alpha", shape: "softCircle", facing: "camera", sort }];
   doc.emitters.push(e);
   return doc;
 }
@@ -49,7 +49,7 @@ function packAt(sort: SortMode, zs: number[], view: { px: number; py: number; pz
     sims.push(new EffectSim(tpl).setPosition(0, 0, z).play());
     sims[sims.length - 1].step(0.1);
   }
-  const batch = new ParticleBatch(tpl.emitters[0], new THREE.MeshBasicNodeMaterial());
+  const batch = new ParticleBatch(tpl.emitters[0], tpl.emitters[0].renderers[0], new THREE.MeshBasicNodeMaterial());
   batch.begin();
   for (const s of sims) batch.pack(s.emitters[0], null);
   batch.end(view);
@@ -82,7 +82,7 @@ describe("particle sorting", () => {
   it("validates sort modes", () => {
     const doc = smoke("distance");
     expect(validateEffect(doc)).toEqual([]);
-    (doc.emitters[0].renderer as { sort: string }).sort = "zigzag";
+    (doc.emitters[0].renderers[0] as { sort: string }).sort = "zigzag";
     expect(validateEffect(doc).some((i) => i.message.includes("zigzag"))).toBe(true);
   });
 });

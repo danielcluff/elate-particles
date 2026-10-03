@@ -20,10 +20,9 @@ import { applyBlend, depthFades, overLife, radialMask, whiteWithAlpha, type Mate
 export const RIBBON_STRIDE = 32;
 export const RIBBON_ATTRIBUTES = ["rA0", "rB0", "rC0", "rD0", "rA1", "rB1", "rC1", "rD1"] as const;
 
-export function createRibbonMaterial(tpl: EmitterTemplate, lut: THREE.DataTexture | null, opts: MaterialOptions): THREE.MeshBasicNodeMaterial {
-  const r = tpl.renderer as RibbonRendererDoc;
+export function createRibbonMaterial(tpl: EmitterTemplate, r: RibbonRendererDoc, lut: THREE.DataTexture | null, opts: MaterialOptions): THREE.MeshBasicNodeMaterial {
   const material = new THREE.MeshBasicNodeMaterial();
-  material.name = `particles:${tpl.doc.name}`;
+  material.name = `particles:${tpl.doc.name}:${r.type}`;
   material.side = THREE.DoubleSide;
 
   // which end of the segment this vertex belongs to (quad y is ±0.5)
@@ -79,6 +78,7 @@ export function createRibbonMaterial(tpl: EmitterTemplate, lut: THREE.DataTextur
 
   opts.hook?.({
     renderer: "ribbon",
+    rendererDoc: r,
     material,
     emitter: tpl,
     nodes: { age, seed: C.y, life: C.z, velocity: vec3(0), color, uv: ribbonUv, shape, time: opts.time },

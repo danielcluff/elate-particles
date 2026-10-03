@@ -104,21 +104,32 @@
         }
       ],
       "render": [],
-      "renderer": {
-        "type": "ribbon",
-        "blend": "additive",
-        "shape": "glow",
-        "facing": "camera",
-        "uvMode": "stretch",
-        "mode": "particle",
-        "trail": {
-          "points": 24,
-          "minDistance": 0.15,
-          "lifetime": 0.6
+      "renderers": [
+        {
+          "type": "ribbon",
+          "blend": "additive",
+          "shape": "glow",
+          "facing": "camera",
+          "uvMode": "stretch",
+          "mode": "particle",
+          "trail": {
+            "points": 24,
+            "minDistance": 0.15,
+            "lifetime": 0.6
+          },
+          "taper": 1,
+          "fade": 1,
+          "id": "shell.r0"
         },
-        "taper": 1,
-        "fade": 1
-      },
+        {
+          "type": "sprite",
+          "blend": "additive",
+          "shape": "glow",
+          "facing": "camera",
+          "sortOrder": 1,
+          "id": "shell.r1"
+        }
+      ],
       "subEmitters": [
         {
           "trigger": "death",
@@ -281,21 +292,32 @@
           }
         }
       ],
-      "renderer": {
-        "type": "ribbon",
-        "blend": "additive",
-        "shape": "glow",
-        "facing": "camera",
-        "uvMode": "stretch",
-        "mode": "particle",
-        "trail": {
-          "points": 16,
-          "minDistance": 0.08,
-          "lifetime": 0.45
+      "renderers": [
+        {
+          "type": "ribbon",
+          "blend": "additive",
+          "shape": "glow",
+          "facing": "camera",
+          "uvMode": "stretch",
+          "mode": "particle",
+          "trail": {
+            "points": 16,
+            "minDistance": 0.08,
+            "lifetime": 0.45
+          },
+          "taper": 1,
+          "fade": 1,
+          "id": "stars.r0"
         },
-        "taper": 1,
-        "fade": 1
-      },
+        {
+          "type": "sprite",
+          "blend": "additive",
+          "shape": "glow",
+          "facing": "camera",
+          "sortOrder": 1,
+          "id": "stars.r1"
+        }
+      ],
       "eventDriven": true
     }
   ],

@@ -112,7 +112,19 @@ export interface Flipbook {
   fps?: number;
 }
 
-export interface SpriteRendererDoc {
+/** Fields every renderer has. An emitter can have several renderers (e.g. a sprite head plus a trail). */
+export interface RendererBase {
+  /** Stable id within the emitter (addressed by commands, the editor and agents). */
+  id?: string;
+  /** Defaults to true. */
+  enabled?: boolean;
+  /** Draw order between renderers/emitters (higher draws later). */
+  sortOrder?: number;
+  /** Particle draw order within this renderer. Default "none". "distance" needs a camera in ParticleWorld.update. */
+  sort?: SortMode;
+}
+
+export interface SpriteRendererDoc extends RendererBase {
   type: "sprite";
   blend: BlendMode;
   shape: SpriteShape;
@@ -122,14 +134,10 @@ export interface SpriteRendererDoc {
   facing: Facing;
   /** facing = "velocity": extra length per unit of speed. */
   stretch?: number;
-  /** Draw order between emitters (higher draws later). */
   /** Soft particles: fade over this many world units where the particle meets scene geometry (needs scene depth; 0 = off). */
   depthFade?: number;
   /** Fade particles closer to the camera than this many world units (fly-through smoke; 0 = off). */
   cameraFade?: number;
-  sortOrder?: number;
-  /** Particle draw order within this emitter. Default "none". "distance" needs a camera in ParticleWorld.update. */
-  sort?: SortMode;
   /** Scale applied to the sprite (shape falloff, glow strength). */
   softness?: number;
 }
@@ -138,7 +146,7 @@ export interface SpriteRendererDoc {
 export const BUILTIN_MESHES = ["box", "sphere", "icosahedron", "octahedron", "tetrahedron", "cone", "cylinder", "torus", "plane"] as const;
 
 /** Instanced mesh per particle (debris, shards, rocks). Uses the same per-particle data as sprites. */
-export interface MeshRendererDoc {
+export interface MeshRendererDoc extends RendererBase {
   type: "mesh";
   blend: BlendMode;
   /** A BUILTIN_MESHES primitive or the name of a geometry registered with ParticleWorld.registerGeometry. */
@@ -155,9 +163,6 @@ export interface MeshRendererDoc {
   metalness?: number;
   /** Colour map sampled with the geometry's UVs. */
   texture?: string;
-  sortOrder?: number;
-  /** Particle draw order within this emitter. Default "none". "distance" needs a camera in ParticleWorld.update. */
-  sort?: SortMode;
 }
 
 /** Per-particle trail history (ribbon mode "particle"). */
@@ -179,7 +184,7 @@ export interface TrailSettings {
  *    with streaks, fireworks, magic missiles.
  * Particle size is the ribbon width.
  */
-export interface RibbonRendererDoc {
+export interface RibbonRendererDoc extends RendererBase {
   type: "ribbon";
   mode?: "emitter" | "particle";
   /** mode "particle": history settings (defaults: 16 points, 0.1 units, 0.5 s). */
@@ -201,9 +206,6 @@ export interface RibbonRendererDoc {
   depthFade?: number;
   /** Fade particles closer to the camera than this many world units (fly-through smoke; 0 = off). */
   cameraFade?: number;
-  sortOrder?: number;
-  /** Particle draw order within this emitter. Default "none". "distance" needs a camera in ParticleWorld.update. */
-  sort?: SortMode;
   softness?: number;
 }
 
@@ -262,7 +264,11 @@ export interface EmitterDoc {
   init: ModuleInstance[];
   update: ModuleInstance[];
   render: ModuleInstance[];
-  renderer: RendererDoc;
+  /**
+   * How the particles are drawn; each renderer is its own draw call over the
+   * same simulation. Empty = invisible (an emitter that only drives sub-emitters).
+   */
+  renderers: RendererDoc[];
   subEmitters?: SubEmitterBinding[];
   lod?: EmitterLod;
 }
@@ -324,4 +330,5 @@ export interface Issue {
   message: string;
   emitterId?: string;
   moduleId?: string;
+  rendererId?: string;
 }

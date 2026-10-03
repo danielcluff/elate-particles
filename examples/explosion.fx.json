@@ -189,17 +189,20 @@
           }
         }
       ],
-      "renderer": {
-        "type": "sprite",
-        "blend": "alpha",
-        "shape": "softCircle",
-        "facing": "camera",
-        "softness": 0.8,
-        "sortOrder": -1,
-        "sort": "distance",
-        "depthFade": 0.6,
-        "cameraFade": 1
-      }
+      "renderers": [
+        {
+          "type": "sprite",
+          "blend": "alpha",
+          "shape": "softCircle",
+          "facing": "camera",
+          "softness": 0.8,
+          "sortOrder": -1,
+          "sort": "distance",
+          "depthFade": 0.6,
+          "cameraFade": 1,
+          "id": "smoke.r0"
+        }
+      ]
     },
     {
       "id": "fireball",
@@ -376,13 +379,16 @@
           }
         }
       ],
-      "renderer": {
-        "type": "sprite",
-        "blend": "additive",
-        "shape": "softCircle",
-        "facing": "camera",
-        "softness": 0.8
-      }
+      "renderers": [
+        {
+          "type": "sprite",
+          "blend": "additive",
+          "shape": "softCircle",
+          "facing": "camera",
+          "softness": 0.8,
+          "id": "fireball.r0"
+        }
+      ]
     },
     {
       "id": "sparks",
@@ -545,13 +551,32 @@
           }
         }
       ],
-      "renderer": {
-        "type": "sprite",
-        "blend": "additive",
-        "shape": "spark",
-        "facing": "velocity",
-        "stretch": 0.05
-      },
+      "renderers": [
+        {
+          "type": "sprite",
+          "blend": "additive",
+          "shape": "spark",
+          "facing": "velocity",
+          "stretch": 0.05,
+          "id": "sparks.r0"
+        },
+        {
+          "type": "ribbon",
+          "blend": "additive",
+          "shape": "glow",
+          "facing": "camera",
+          "uvMode": "stretch",
+          "mode": "particle",
+          "trail": {
+            "points": 8,
+            "minDistance": 0.1,
+            "lifetime": 0.15
+          },
+          "taper": 1,
+          "fade": 1,
+          "id": "sparks.r1"
+        }
+      ],
       "subEmitters": [
         {
           "trigger": "death",
@@ -737,14 +762,17 @@
           }
         }
       ],
-      "renderer": {
-        "type": "mesh",
-        "blend": "opaque",
-        "mesh": "icosahedron",
-        "orientation": "random",
-        "lit": true,
-        "roughness": 0.8
-      },
+      "renderers": [
+        {
+          "type": "mesh",
+          "blend": "opaque",
+          "mesh": "icosahedron",
+          "orientation": "random",
+          "lit": true,
+          "roughness": 0.8,
+          "id": "debris.r0"
+        }
+      ],
       "lod": {
         "maxDistance": 45,
         "minQuality": 0.5
@@ -873,12 +901,15 @@
           }
         }
       ],
-      "renderer": {
-        "type": "sprite",
-        "blend": "additive",
-        "shape": "glow",
-        "facing": "camera"
-      },
+      "renderers": [
+        {
+          "type": "sprite",
+          "blend": "additive",
+          "shape": "glow",
+          "facing": "camera",
+          "id": "flash.r0"
+        }
+      ],
       "lod": {
         "scaleSpawn": false
       }
@@ -1014,12 +1045,15 @@
           }
         }
       ],
-      "renderer": {
-        "type": "sprite",
-        "blend": "additive",
-        "shape": "ring",
-        "facing": "horizontal"
-      },
+      "renderers": [
+        {
+          "type": "sprite",
+          "blend": "additive",
+          "shape": "ring",
+          "facing": "horizontal",
+          "id": "shockwave.r0"
+        }
+      ],
       "lod": {
         "scaleSpawn": false
       }
@@ -1153,14 +1187,17 @@
           }
         }
       ],
-      "renderer": {
-        "type": "sprite",
-        "blend": "alpha",
-        "shape": "softCircle",
-        "facing": "camera",
-        "sortOrder": -1,
-        "sort": "distance"
-      },
+      "renderers": [
+        {
+          "type": "sprite",
+          "blend": "alpha",
+          "shape": "softCircle",
+          "facing": "camera",
+          "sortOrder": -1,
+          "sort": "distance",
+          "id": "puff.r0"
+        }
+      ],
       "eventDriven": true,
       "lod": {
         "maxDistance": 45,

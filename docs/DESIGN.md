@@ -78,7 +78,7 @@ EffectDoc
     ├── init[]            modules → run once on each new particle
     ├── update[]          modules → run on every particle every frame
     ├── render[]          modules → baked to GPU lookup tables (size/colour over life)
-    ├── renderer          sprite | mesh | ribbon (see Renderers)
+    ├── renderers[]       sprite | mesh | ribbon, each its own draw call over the same particles (see Renderers)
     └── subEmitters[]     on birth/death → spawn N in another emitter (inherit velocity/colour)
 ```
 
@@ -91,7 +91,22 @@ EffectDoc
 | `ribbon` | one quad per segment. `mode: "emitter"`: one strip per effect instance through its particles, oldest → newest. `mode: "particle"`: a trail behind every particle | `facing`: camera / horizontal; `uvMode`: stretch (0 at the head → 1 at the tail) / tile (every `uvTile` units); `taper`, `fade` toward the tail; `trail: { points, minDistance, lifetime }` for particle mode; `shape` is the cross-section falloff or a texture | tracers, engine trails, beams (emitter mode); sparks with streaks, fireworks, magic missiles (particle mode) |
 
 All three share the over-life LUT (size and colour over life), the blend modes (`additive`, `alpha`, `premultiplied`,
-`opaque`), the material hook, and batching: one draw call per emitter however many instances are alive.
+`opaque`), the material hook, and batching: one draw call per renderer however many instances are alive.
+
+**Several renderers per emitter** (as in Niagara): `EmitterDoc.renderers` is a list, so one simulation can be drawn
+several ways, e.g. a stretched sprite head *and* a fading trail on the same spark, or a mesh plus a glow sprite.
+
+- Each renderer has an `id` (stable, used by commands, the editor and agents), `enabled`, its own material, `sort`
+  mode and `sortOrder`, and becomes its own batch and draw call. The emitter's over-life LUT is shared.
+- What the simulator needs from rendering is derived across the list: ordered compaction if any enabled renderer is an
+  emitter-mode ribbon; the trail history from the first particle-mode ribbon (one history per emitter; validation
+  warns if two particle-mode ribbons disagree); culling margins as the maximum.
+- An empty list is valid: the emitter simulates (and can drive sub-emitters) but draws nothing.
+- Commands: `addRenderer`, `removeRenderer`, `moveRenderer`, and `setRenderer` with an optional `rendererId` (the
+  first renderer when omitted). Batches support `$ref` names for new renderers.
+- Files with the older single `renderer` field still load: `normalizeEffect` migrates it to `renderers: [renderer]`.
+- Cost: each renderer packs the emitter's particles again (about the cost of one pack per extra renderer). The
+  simulation runs once. `drawnParticles` counts each particle once.
 
 How ribbons work:
 
@@ -260,9 +275,7 @@ else is ~15–20 ns per particle.
    supports gameplay callbacks, sub-emitters and determinism cheaply.
 2. **Cross-emitter sorting.** Particles sort within an emitter; between emitters, `sortOrder` decides (as in Unity and
    Niagara). Interleaving two alpha emitters correctly would need merging their batches.
-3. **Multiple renderers per emitter** (Niagara allows several): a spark as a sprite head *and* a trail currently takes
-   two emitters, or a trail with a bright head via `fade`.
-4. A **worker simulation** if main-thread time gets tight (SoA buffers are transferable).
+3. A **worker simulation** if main-thread time gets tight (SoA buffers are transferable).
 
 ### three.js and framework compatibility
 
@@ -364,7 +377,7 @@ The same tool table serves the MCP server and the in-editor chat (as in tsl-grap
 
 `list_effects`, `create_effect`, `open_effect`, `get_effect`, `list_module_types`, `get_module_type`, `add_emitter`,
 `update_emitter`, `remove_emitter`, `duplicate_emitter`, `add_module`, `update_module`, `remove_module`, `move_module`,
-`set_renderer`, `set_sub_emitters`, `set_parameter`, `apply_operations` (atomic batch with `$refs`),
+`add_renderer`, `set_renderer`, `remove_renderer`, `set_sub_emitters`, `set_parameter`, `apply_operations` (atomic batch with `$refs`),
 `validate_effect`, `capture_preview` (screenshot of the live editor at time *t*), `get_stats`.
 
 Every tool is a thin wrapper over a `Command`, which already exists. The system prompt teaches the stage model and the
@@ -422,7 +435,7 @@ on it. That's the only change Phase 3 asks of tsl-graph.
 | --- | --- | --- |
 | **1** ✅ | Runtime library | Core, 20 modules, CPU sim, batched TSL sprite/mesh/ribbon renderers, Redshift adapter, examples, tests, playground |
 | 1.1 | Redshift adoption | Wire `ParticleWorld` into `Game.ts`; thrusters on ships; replace `EffectSpawner`; delete the old particle system |
-| 1.2 | Runtime gaps | ✅ mesh + ribbon renderers, per-particle trails, sorting, soft particles + camera fade, budget/LOD/culling |
+| 1.2 | Runtime gaps | ✅ mesh + ribbon renderers, per-particle trails, multiple renderers per emitter, sorting, soft particles + camera fade, budget/LOD/culling |
 | **2** | Effect editor | Stack UI, value widgets, timeline, viewport, store and undo, MCP + AI chat, `particle` graph kind in tsl-graph |
 | 2.1 | GPU backend | TSL compute implementations for built-in modules, `sim: "gpu"` per emitter |
 | **3** | FX studio | Monorepo, `studio-kit` extraction, asset model, prefabs, unified MCP, export bundle |

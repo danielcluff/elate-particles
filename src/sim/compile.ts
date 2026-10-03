@@ -46,7 +46,8 @@ export interface EmitterTemplate {
   /** Over-life LUTs for the renderer; null when no render module provides one. */
   sizeLut: Float32Array | null;
   colorLut: Float32Array | null;
-  renderer: RendererDoc;
+  /** Enabled renderers, in draw-definition order (each becomes its own batch / draw call). */
+  renderers: RendererDoc[];
   /**
    * Keep particles in spawn order (oldest first). Ribbons need it; it costs an
    * order-preserving compaction instead of swap-remove when particles die.
@@ -158,8 +159,14 @@ export function compileEffect(doc: EffectDoc): EffectTemplate {
           return [{ target, count: Math.max(0, Math.round(s.count)), probability: s.probability ?? 1, inheritVelocity: s.inheritVelocity ?? 0, inheritColor: s.inheritColor ?? false }];
         });
 
-    const r = e.renderer;
-    const trail: TrailSettings | null = r?.type === "ribbon" && r.mode === "particle" ? { ...DEFAULT_TRAIL, ...r.trail } : null;
+    const renderers = (e.renderers ?? []).filter((r) => r && r.enabled !== false);
+    // one trail history per emitter, from the first particle-mode ribbon (validateStructure warns on disagreement)
+    const trailRibbon = renderers.find((r) => r.type === "ribbon" && r.mode === "particle");
+    const trail: TrailSettings | null = trailRibbon?.type === "ribbon" ? { ...DEFAULT_TRAIL, ...trailRibbon.trail } : null;
+    const speedMargin = Math.max(
+      0,
+      ...renderers.map((r) => (r.type === "ribbon" && r.mode === "particle" ? trail!.lifetime : r.type === "sprite" && r.facing === "velocity" ? (r.stretch ?? 0.1) : 0)),
+    );
 
     return {
       doc: e,
@@ -181,15 +188,15 @@ export function compileEffect(doc: EffectDoc): EffectTemplate {
       extraChannels: trail ? [...extra, "trailSlot"] : [...extra],
       sizeLut,
       colorLut,
-      renderer: e.renderer,
-      ordered: e.renderer?.type === "ribbon" && !trail,
+      renderers,
+      ordered: renderers.some((r) => r.type === "ribbon" && r.mode !== "particle"),
       trail,
       scaleSpawn: e.lod?.scaleSpawn !== false,
       maxDistance: e.lod?.maxDistance ?? Infinity,
       minQuality: e.lod?.minQuality ?? 0,
       // half the quad × the largest size-over-life value (mesh primitives are ~1 unit across too)
       sizeMargin: 0.5 * (sizeLut ? Math.max(1e-3, ...(sizeLut as Float32Array)) : 1),
-      speedMargin: trail ? trail.lifetime : r?.type === "sprite" && r.facing === "velocity" ? (r.stretch ?? 0.1) : 0,
+      speedMargin,
       birth: resolveSubs("birth"),
       death: resolveSubs("death"),
     };

@@ -3,7 +3,7 @@
 import * as THREE from "three/webgpu";
 import { attribute, cameraFar, cameraNear, clamp, float, pow, smoothstep, texture, vec2, vec3, vec4, viewportLinearDepth } from "three/tsl";
 import type { EmitterTemplate } from "../../sim/compile";
-import type { BlendMode, RendererType } from "../../core/types";
+import type { BlendMode, RendererDoc, RendererType } from "../../core/types";
 import { LUT_SIZE } from "../../core/values";
 
 // TSL node types are loose in @types/three; keep them local.
@@ -29,6 +29,8 @@ export const PARTICLE_ATTRIBUTES = {
 /** The nodes a material hook can build on (see ParticleWorldOptions.materialHook). */
 export interface ParticleMaterialContext {
   renderer: RendererType;
+  /** The renderer being built (an emitter can have several). */
+  rendererDoc: RendererDoc;
   material: THREE.NodeMaterial;
   emitter: EmitterTemplate;
   nodes: {

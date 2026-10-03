@@ -5,7 +5,7 @@
 
 import * as THREE from "three/webgpu";
 import { uniform } from "three/tsl";
-import type { EffectDoc } from "../core/types";
+import type { EffectDoc, MeshRendererDoc, RendererDoc } from "../core/types";
 import { compileEffect, type EffectTemplate } from "../sim/compile";
 import { EffectSim } from "../sim/effect";
 import type { EmitterTemplate } from "../sim/compile";
@@ -77,7 +77,10 @@ export interface ParticleWorldStats {
 
 interface Registered {
   template: EffectTemplate;
+  /** Every batch (begin/end/dispose). */
   batches: InstanceBatch[];
+  /** Per emitter index: one batch per enabled renderer. */
+  emitterBatches: InstanceBatch[][];
   materials: THREE.Material[];
   luts: THREE.Texture[];
   pool: EffectSim[];
@@ -223,11 +226,11 @@ export class ParticleWorld {
   registerGeometry(name: string, geometry: THREE.BufferGeometry): void {
     this.#geometries.set(name, geometry);
     for (const reg of [...this.#effects.values()])
-      if (reg.template.emitters.some((e) => e.renderer.type === "mesh" && e.renderer.mesh === name)) this.register(reg.template.doc);
+      if (reg.template.emitters.some((e) => e.renderers.some((r) => r.type === "mesh" && r.mesh === name))) this.register(reg.template.doc);
   }
 
-  #meshGeometry(e: EmitterTemplate): () => THREE.BufferGeometry {
-    const name = e.renderer.type === "mesh" ? e.renderer.mesh : "box";
+  #meshGeometry(e: EmitterTemplate, r: MeshRendererDoc): () => THREE.BufferGeometry {
+    const name = r.mesh;
     const registered = this.#geometries.get(name);
     if (registered) return () => registered.clone();
     if (createBuiltinMesh(name)) return () => createBuiltinMesh(name)!;
@@ -235,20 +238,20 @@ export class ParticleWorld {
     return () => createBuiltinMesh("box")!;
   }
 
-  #createBatch(e: EmitterTemplate, lut: THREE.DataTexture | null): { batch: InstanceBatch; material: THREE.Material } {
+  #createBatch(e: EmitterTemplate, r: RendererDoc, lut: THREE.DataTexture | null): { batch: InstanceBatch; material: THREE.Material } {
     const opts: MaterialOptions = { time: this.time, loadTexture: this.#loadTexture, hook: this.#opts.materialHook };
-    switch (e.renderer.type) {
+    switch (r.type) {
       case "mesh": {
-        const material = createMeshMaterial(e, lut, opts);
-        return { material, batch: new ParticleBatch(e, material, this.#meshGeometry(e)) };
+        const material = createMeshMaterial(e, r, lut, opts);
+        return { material, batch: new ParticleBatch(e, r, material, this.#meshGeometry(e, r)) };
       }
       case "ribbon": {
-        const material = createRibbonMaterial(e, lut, opts);
-        return { material, batch: new RibbonBatch(e, material) };
+        const material = createRibbonMaterial(e, r, lut, opts);
+        return { material, batch: new RibbonBatch(e, r, material) };
       }
       default: {
-        const material = createSpriteMaterial(e, lut, opts);
-        return { material, batch: new ParticleBatch(e, material) };
+        const material = createSpriteMaterial(e, r, lut, opts);
+        return { material, batch: new ParticleBatch(e, r, material) };
       }
     }
   }
@@ -276,6 +279,7 @@ export class ParticleWorld {
     const reg: Registered = {
       template,
       batches: [],
+      emitterBatches: [],
       materials: [],
       luts: [],
       pool: [],
@@ -283,12 +287,18 @@ export class ParticleWorld {
       looping: template.emitters.some((e) => e.looping),
     };
     for (const e of template.emitters) {
+      // one LUT per emitter, shared by its renderers
       const lut = createLutTexture(e);
       if (lut) reg.luts.push(lut);
-      const { batch, material } = this.#createBatch(e, lut);
-      reg.materials.push(material);
-      reg.batches.push(batch);
-      this.object.add(batch.mesh);
+      const list: InstanceBatch[] = [];
+      for (const r of e.renderers) {
+        const { batch, material } = this.#createBatch(e, r, lut);
+        reg.materials.push(material);
+        reg.batches.push(batch);
+        list.push(batch);
+        this.object.add(batch.mesh);
+      }
+      reg.emitterBatches.push(list);
     }
     this.#effects.set(doc.id, reg);
 
@@ -422,7 +432,7 @@ export class ParticleWorld {
   #budget: number | null = null;
   #budgetScale = 1;
   #rejected = 0;
-  #frameStats = { particles: 0, culled: 0, rejected: 0 };
+  #frameStats = { particles: 0, drawn: 0, culled: 0, rejected: 0 };
 
   /**
    * Steps every live effect and fills the GPU buffers. Pass the camera that
@@ -455,7 +465,7 @@ export class ParticleWorld {
       }
     } else if (!this.#warnedNoCamera) {
       for (const reg of this.#effects.values())
-        if (reg.template.emitters.some((em) => em.renderer.sort === "distance")) {
+        if (reg.template.emitters.some((em) => em.renderers.some((r) => r.sort === "distance"))) {
           console.warn('tsl-particles: an emitter uses sort: "distance" but ParticleWorld.update() was called without a camera; it is drawn unsorted');
           this.#warnedNoCamera = true;
           break;
@@ -519,6 +529,7 @@ export class ParticleWorld {
 
     // pack what is visible
     let culled = 0;
+    let drawn = 0;
     const box = this.#box;
     const bb = this.#bounds;
     for (const reg of this.#effects.values()) for (const b of reg.batches) b.begin();
@@ -536,8 +547,14 @@ export class ParticleWorld {
           continue;
         }
       } else h._visible = true;
-      const batches = this.#effects.get(h.effectId)!.batches;
-      for (const e of sim.emitters) batches[e.template.index].pack(e, e.template.space === "local" ? sim.matrix : null);
+      const perEmitter = this.#effects.get(h.effectId)!.emitterBatches;
+      for (const e of sim.emitters) {
+        const list = perEmitter[e.template.index];
+        if (list.length === 0) continue;
+        drawn += e.buf.count; // once per emitter, however many renderers draw it
+        const m = e.template.space === "local" ? sim.matrix : null;
+        for (let k = 0; k < list.length; k++) list[k].pack(e, m);
+      }
     }
     for (const reg of this.#effects.values()) for (const b of reg.batches) b.end(view);
 
@@ -554,25 +571,21 @@ export class ParticleWorld {
     }
 
     this.#frameStats.particles = simulated;
+    this.#frameStats.drawn = drawn;
     this.#frameStats.culled = culled;
     this.#frameStats.rejected = this.#rejected;
     this.#rejected = 0;
   }
 
   get stats(): ParticleWorldStats {
-    let particles = 0;
     let drawCalls = 0;
-    for (const reg of this.#effects.values())
-      for (const b of reg.batches) {
-        particles += b.particles;
-        if (b.instances > 0) drawCalls++;
-      }
+    for (const reg of this.#effects.values()) for (const b of reg.batches) if (b.instances > 0) drawCalls++;
     const f = this.#frameStats;
     return {
       effects: this.#effects.size,
       instances: this.#active.length,
       particles: f.particles,
-      drawnParticles: particles,
+      drawnParticles: f.drawn,
       drawCalls,
       culledInstances: f.culled,
       budgetScale: this.#budgetScale,

@@ -29,10 +29,9 @@ import type { SpriteRendererDoc } from "../../core/types";
 import type { EmitterTemplate } from "../../sim/compile";
 import { applyBlend, depthFades, overLife, particleAttributes, radialMask, whiteWithAlpha, type MaterialOptions, type Node } from "./common";
 
-export function createSpriteMaterial(tpl: EmitterTemplate, lut: THREE.DataTexture | null, opts: MaterialOptions): THREE.MeshBasicNodeMaterial {
-  const r = tpl.renderer as SpriteRendererDoc;
+export function createSpriteMaterial(tpl: EmitterTemplate, r: SpriteRendererDoc, lut: THREE.DataTexture | null, opts: MaterialOptions): THREE.MeshBasicNodeMaterial {
   const material = new THREE.MeshBasicNodeMaterial();
-  material.name = `particles:${tpl.doc.name}`;
+  material.name = `particles:${tpl.doc.name}:${r.type}`;
   material.side = THREE.DoubleSide;
 
   const { pA, pB, pC, pD } = particleAttributes();
@@ -109,6 +108,7 @@ export function createSpriteMaterial(tpl: EmitterTemplate, lut: THREE.DataTextur
 
   opts.hook?.({
     renderer: "sprite",
+    rendererDoc: r,
     material,
     emitter: tpl,
     nodes: { age, seed, life: pC.z, velocity: pB.xyz, color, uv: spriteUv, shape, time: opts.time },

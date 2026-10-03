@@ -13,12 +13,12 @@ function bench(sort: "none" | "distance") {
   e.maxParticles = n;
   e.spawn.push(createModule("spawn.burst", { count: n }));
   e.init.push(createModule("init.shape", { shape: "box", boxSize: [40, 10, 40], speed: 0 }), createModule("init.lifetime", { lifetime: 100 }));
-  e.renderer = { type: "sprite", blend: "alpha", shape: "softCircle", facing: "camera", sort };
+  e.renderers = [{ type: "sprite", blend: "alpha", shape: "softCircle", facing: "camera", sort }];
   doc.emitters.push(e);
   const tpl = compileEffect(doc);
   const sim = new EffectSim(tpl).play();
   sim.step(1 / 60);
-  const batch = new ParticleBatch(tpl.emitters[0], new THREE.MeshBasicNodeMaterial(), undefined, n);
+  const batch = new ParticleBatch(tpl.emitters[0], tpl.emitters[0].renderers[0], new THREE.MeshBasicNodeMaterial(), undefined, n);
   const frames = 60;
   let ms = 0;
   for (let f = 0; f < frames + 10; f++) {

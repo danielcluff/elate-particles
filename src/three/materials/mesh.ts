@@ -25,8 +25,7 @@ function alignY(v: Node, d: Node): Node {
   return select(s2.greaterThan(1e-6), rotated, flipped);
 }
 
-export function createMeshMaterial(tpl: EmitterTemplate, lut: THREE.DataTexture | null, opts: MaterialOptions): THREE.NodeMaterial {
-  const r = tpl.renderer as MeshRendererDoc;
+export function createMeshMaterial(tpl: EmitterTemplate, r: MeshRendererDoc, lut: THREE.DataTexture | null, opts: MaterialOptions): THREE.NodeMaterial {
   let material: THREE.NodeMaterial;
   if (r.lit) {
     const m = new THREE.MeshStandardNodeMaterial();
@@ -36,7 +35,7 @@ export function createMeshMaterial(tpl: EmitterTemplate, lut: THREE.DataTexture 
   } else {
     material = new THREE.MeshBasicNodeMaterial();
   }
-  material.name = `particles:${tpl.doc.name}`;
+  material.name = `particles:${tpl.doc.name}:${r.type}`;
 
   const { pA, pB, pC, pD } = particleAttributes();
   const age: Node = pA.w;
@@ -70,6 +69,7 @@ export function createMeshMaterial(tpl: EmitterTemplate, lut: THREE.DataTexture 
 
   opts.hook?.({
     renderer: "mesh",
+    rendererDoc: r,
     material,
     emitter: tpl,
     nodes: { age, seed, life: pC.z, velocity: pB.xyz, color, uv: uv(), shape, time: opts.time },

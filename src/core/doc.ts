@@ -34,6 +34,11 @@ export function defaultRenderer(type: RendererType = "sprite"): RendererDoc {
   }
 }
 
+/** A renderer of `type` with defaults, overrides and a fresh id. */
+export function createRenderer(type: RendererType = "sprite", overrides: Partial<RendererDoc> = {}): RendererDoc {
+  return { ...defaultRenderer(type), ...overrides, type, id: overrides.id ?? uid("r") } as RendererDoc;
+}
+
 /** A module instance with every param at its default (plus overrides). */
 export function createModule(type: string, params: Record<string, unknown> = {}): ModuleInstance {
   const def = getModuleDef(type);
@@ -54,7 +59,7 @@ export function createEmitter(name = "Emitter", template: "default" | "empty" = 
     init: [],
     update: [],
     render: [],
-    renderer: defaultRenderer(),
+    renderers: [createRenderer()],
   };
   if (template === "empty") return base;
   base.spawn.push(createModule("spawn.rate"));
@@ -90,6 +95,17 @@ function normalizeModules(list: unknown): ModuleInstance[] {
   }));
 }
 
+/** `renderers` (or a legacy single `renderer`), each filled with its type's defaults and given an id. */
+function normalizeRenderers(raw: Record<string, unknown>): RendererDoc[] {
+  const list: unknown[] = Array.isArray(raw.renderers) ? raw.renderers : isObj(raw.renderer) ? [raw.renderer] : [defaultRenderer()];
+  const seen = new Set<string>();
+  return list.filter(isObj).map((r) => {
+    let id = typeof r.id === "string" && r.id && !seen.has(r.id) ? r.id : uid("r");
+    seen.add(id);
+    return { ...defaultRenderer(r.type as RendererType), ...r, id } as RendererDoc;
+  });
+}
+
 /**
  * Parses untrusted JSON into an EffectDoc, filling structural defaults.
  * Throws when the input is not an effect at all; content problems are left
@@ -101,17 +117,16 @@ export function normalizeEffect(json: unknown): EffectDoc {
   if (!Array.isArray(json.emitters)) throw new Error("Effect has no emitters array");
   const emitters = json.emitters.filter(isObj).map((raw): EmitterDoc => {
     const def = createEmitter(String(raw.name ?? "Emitter"), "empty");
+    const { renderer: _legacy, ...fields } = raw;
     return {
       ...def,
-      ...(raw as Partial<EmitterDoc>),
+      ...(fields as Partial<EmitterDoc>),
       id: typeof raw.id === "string" && raw.id ? raw.id : def.id,
       spawn: normalizeModules(raw.spawn),
       init: normalizeModules(raw.init),
       update: normalizeModules(raw.update),
       render: normalizeModules(raw.render),
-      renderer: isObj(raw.renderer)
-        ? ({ ...defaultRenderer(raw.renderer.type as RendererType), ...raw.renderer } as RendererDoc)
-        : defaultRenderer(),
+      renderers: normalizeRenderers(raw),
     };
   });
   return {
@@ -139,23 +154,38 @@ export function validateStructure(doc: EffectDoc): Issue[] {
     if (!(e.duration > 0)) issues.push({ level: "error", message: "duration must be > 0", emitterId: e.id });
     if (!(e.maxParticles >= 1)) issues.push({ level: "error", message: "maxParticles must be ≥ 1", emitterId: e.id });
     if (e.maxParticles > 100_000) issues.push({ level: "warning", message: "maxParticles above 100k is expensive on the CPU simulator", emitterId: e.id });
-    const r = e.renderer;
-    if (!RENDERER_TYPES.includes(r?.type)) issues.push({ level: "error", message: `Unknown renderer type "${String(r?.type)}"`, emitterId: e.id });
-    else if (r.type !== "mesh" && r.shape === "texture" && !r.texture) issues.push({ level: "warning", message: "Texture shape without a texture", emitterId: e.id });
-    else if (r.type === "mesh" && !r.mesh) issues.push({ level: "error", message: "Mesh renderer needs a mesh", emitterId: e.id });
-    for (const key of ["depthFade", "cameraFade"] as const) {
-      const v = r && r.type !== "mesh" ? r[key] : undefined;
-      if (v !== undefined && !(v >= 0)) issues.push({ level: "error", message: `${key} must be ≥ 0`, emitterId: e.id });
+    if (!Array.isArray(e.renderers)) issues.push({ level: "error", message: "Emitter has no renderers array", emitterId: e.id });
+    const rids = new Set<string>();
+    for (const r of e.renderers ?? []) {
+      const where = { emitterId: e.id, rendererId: r?.id };
+      if (r?.id) {
+        if (rids.has(r.id)) issues.push({ level: "error", message: `Duplicate renderer id "${r.id}"`, ...where });
+        rids.add(r.id);
+      }
+      if (!RENDERER_TYPES.includes(r?.type)) {
+        issues.push({ level: "error", message: `Unknown renderer type "${String(r?.type)}"`, ...where });
+        continue;
+      }
+      if (r.type !== "mesh" && r.shape === "texture" && !r.texture) issues.push({ level: "warning", message: "Texture shape without a texture", ...where });
+      if (r.type === "mesh" && !r.mesh) issues.push({ level: "error", message: "Mesh renderer needs a mesh", ...where });
+      for (const key of ["depthFade", "cameraFade"] as const) {
+        const v = r.type !== "mesh" ? r[key] : undefined;
+        if (v !== undefined && !(v >= 0)) issues.push({ level: "error", message: `${key} must be ≥ 0`, ...where });
+      }
+      if (r.sort !== undefined && !["none", "distance", "oldestOnTop", "newestOnTop"].includes(r.sort))
+        issues.push({ level: "error", message: `Unknown sort mode "${String(r.sort)}"`, ...where });
+      if (r.type === "ribbon" && r.mode !== "particle" && e.maxParticles > 2000)
+        issues.push({ level: "warning", message: "Ribbons rarely need more than a few hundred points", ...where });
+      if (r.type === "ribbon" && r.mode === "particle" && r.trail) {
+        if (!(r.trail.points >= 2 && r.trail.points <= 256)) issues.push({ level: "error", message: "trail.points must be between 2 and 256", ...where });
+        if (!(r.trail.lifetime > 0)) issues.push({ level: "error", message: "trail.lifetime must be > 0", ...where });
+        if (!(r.trail.minDistance >= 0)) issues.push({ level: "error", message: "trail.minDistance must be ≥ 0", ...where });
+      }
     }
-    if (r?.sort !== undefined && !["none", "distance", "oldestOnTop", "newestOnTop"].includes(r.sort))
-      issues.push({ level: "error", message: `Unknown sort mode "${String(r.sort)}"`, emitterId: e.id });
-    if (r?.type === "ribbon" && r.mode !== "particle" && e.maxParticles > 2000)
-      issues.push({ level: "warning", message: "Ribbons rarely need more than a few hundred points", emitterId: e.id });
-    if (r?.type === "ribbon" && r.mode === "particle" && r.trail) {
-      if (!(r.trail.points >= 2 && r.trail.points <= 256)) issues.push({ level: "error", message: "trail.points must be between 2 and 256", emitterId: e.id });
-      if (!(r.trail.lifetime > 0)) issues.push({ level: "error", message: "trail.lifetime must be > 0", emitterId: e.id });
-      if (!(r.trail.minDistance >= 0)) issues.push({ level: "error", message: "trail.minDistance must be ≥ 0", emitterId: e.id });
-    }
+    // one trail history per emitter: particle-mode ribbons must agree on it
+    const trails = (e.renderers ?? []).filter((r) => r?.type === "ribbon" && r.mode === "particle" && r.enabled !== false);
+    if (trails.length > 1 && new Set(trails.map((r) => JSON.stringify((r as { trail?: unknown }).trail ?? null))).size > 1)
+      issues.push({ level: "warning", message: "Particle-mode ribbons in one emitter share a trail history; the first one's trail settings are used", emitterId: e.id });
     const seen = new Set<string>();
     for (const stage of STAGES) {
       for (const m of e[stage]) {
@@ -194,6 +224,12 @@ export function findEmitter(doc: EffectDoc, id: string): EmitterDoc {
   const e = doc.emitters.find((x) => x.id === id) ?? doc.emitters.find((x) => x.name === id);
   if (!e) throw new Error(`Emitter "${id}" not found`);
   return e;
+}
+
+export function findRenderer(e: EmitterDoc, id?: string): { index: number; renderer: RendererDoc } {
+  const index = id === undefined ? 0 : e.renderers.findIndex((r) => r.id === id);
+  if (index < 0 || !e.renderers[index]) throw new Error(id === undefined ? `Emitter "${e.name}" has no renderers` : `Renderer "${id}" not found in emitter "${e.name}"`);
+  return { index, renderer: e.renderers[index] };
 }
 
 export function findModule(e: EmitterDoc, id: string): { stage: Stage; index: number; module: ModuleInstance } {

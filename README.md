@@ -6,7 +6,7 @@ Data-driven particle effects for three.js (WebGPU / TSL).
   the style of Unity VFX Graph and Unreal Niagara.
 - **A zero-allocation CPU simulator** stores particles as structure-of-arrays. Curves are baked, and size/colour over
   life is evaluated on the GPU.
-- **Sprite, mesh and ribbon renderers**: billboards with flipbooks and velocity stretch; tumbling or velocity-aligned
+- **Sprite, mesh and ribbon renderers**, several per emitter if you like (a spark head *and* its trail): billboards with flipbooks and velocity stretch; tumbling or velocity-aligned
   instanced meshes (built-ins or your own geometry); camera-facing ribbons, either one strip per emitter (tracers, engine trails) or a trail behind every particle (sparks,
   fireworks).
 - **Batched rendering.** Every live instance of an emitter shares one instanced draw call, so 1,900 explosions render
@@ -56,6 +56,8 @@ executeCommand(fx, {
     { op: "addModule", emitterId: "$s", type: "init.shape", params: { shape: "sphere", speed: { kind: "range", min: 6, max: 14 } } },
     { op: "addModule", emitterId: "$s", type: "update.gravity" },
     { op: "setRenderer", emitterId: "$s", renderer: { shape: "spark", facing: "velocity" } },
+    // same particles, drawn a second way: a fading streak behind each spark
+    { op: "addRenderer", emitterId: "$s", renderer: { type: "ribbon", mode: "particle", fade: 1, taper: 1 } },
   ],
 });
 ```

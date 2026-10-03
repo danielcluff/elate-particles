@@ -3,7 +3,8 @@ import { createModule, defaultRenderer, type EffectDoc, type EmitterDoc, type Mo
 
 type Mods = [string, Record<string, unknown>?][];
 
-function emitter(id: string, props: Partial<EmitterDoc>, mods: Mods, renderer: Partial<RendererDoc> = {}): EmitterDoc {
+/** `renderer` may be one renderer or several (e.g. a sprite head plus a trail). */
+function emitter(id: string, props: Partial<EmitterDoc>, mods: Mods, renderer: Partial<RendererDoc> | Partial<RendererDoc>[] = {}): EmitterDoc {
   const e: EmitterDoc = {
     id,
     name: id,
@@ -16,7 +17,8 @@ function emitter(id: string, props: Partial<EmitterDoc>, mods: Mods, renderer: P
     init: [],
     update: [],
     render: [],
-    renderer: { ...defaultRenderer(renderer.type), ...renderer } as RendererDoc,
+    // stable ids keep exported .fx.json diffs readable
+    renderers: (Array.isArray(renderer) ? renderer : [renderer]).map((r, i) => ({ ...defaultRenderer(r.type), ...r, id: `${id}.r${i}` }) as RendererDoc),
     ...props,
   };
   for (const [type, params] of mods) {
@@ -205,7 +207,11 @@ export const explosion = effect("explosion", "Explosion", [
         ["update.collisionPlane", { bounce: 0.3, friction: 0.4 }],
         ["render.colorOverLife", { gradient: { colors: [{ t: 0, color: "#ffffff" }], alphas: [{ t: 0, a: 1 }, { t: 0.7, a: 1 }, { t: 1, a: 0 }] } }],
       ],
-      { blend: "additive", shape: "spark", facing: "velocity", stretch: 0.05 },
+      [
+        // one simulation, drawn twice: a stretched spark head and a short fading streak behind it
+        { blend: "additive", shape: "spark", facing: "velocity", stretch: 0.05 },
+        { type: "ribbon", mode: "particle", trail: { points: 8, minDistance: 0.1, lifetime: 0.15 }, taper: 1, fade: 1, blend: "additive", shape: "glow" },
+      ],
     ),
     subEmitters: [{ trigger: "death", emitter: "puff", count: 1, probability: 0.5, inheritVelocity: 0.1 }],
   },
@@ -328,7 +334,10 @@ export const firework = effect("firework", "Firework", [
         ["init.color", { color: { kind: "constant", color: "#ffd9a0", intensity: 3 } }],
         ["update.gravity", {}],
       ],
-      { type: "ribbon", mode: "particle", trail: { points: 24, minDistance: 0.15, lifetime: 0.6 }, taper: 1, fade: 1, blend: "additive", shape: "glow" },
+      [
+        { type: "ribbon", mode: "particle", trail: { points: 24, minDistance: 0.15, lifetime: 0.6 }, taper: 1, fade: 1, blend: "additive", shape: "glow" },
+        { blend: "additive", shape: "glow", sortOrder: 1 },
+      ],
     ),
     subEmitters: [{ trigger: "death", emitter: "stars", count: 90, inheritVelocity: 0.4 }],
   },
@@ -352,7 +361,11 @@ export const firework = effect("firework", "Firework", [
       ["update.drag", { drag: 1.1 }],
       ["render.colorOverLife", { gradient: { colors: [{ t: 0, color: "#ffffff" }], alphas: [{ t: 0, a: 1 }, { t: 0.7, a: 1 }, { t: 1, a: 0 }] } }],
     ],
-    { type: "ribbon", mode: "particle", trail: { points: 16, minDistance: 0.08, lifetime: 0.45 }, taper: 1, fade: 1, blend: "additive", shape: "glow" },
+    [
+      { type: "ribbon", mode: "particle", trail: { points: 16, minDistance: 0.08, lifetime: 0.45 }, taper: 1, fade: 1, blend: "additive", shape: "glow" },
+      // bright head on every star, drawn over its trail
+      { blend: "additive", shape: "glow", sortOrder: 1 },
+    ],
   ),
 ]);
 

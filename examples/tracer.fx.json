@@ -126,13 +126,16 @@
           }
         }
       ],
-      "renderer": {
-        "type": "ribbon",
-        "blend": "additive",
-        "shape": "glow",
-        "facing": "camera",
-        "uvMode": "stretch"
-      }
+      "renderers": [
+        {
+          "type": "ribbon",
+          "blend": "additive",
+          "shape": "glow",
+          "facing": "camera",
+          "uvMode": "stretch",
+          "id": "trail.r0"
+        }
+      ]
     },
     {
       "id": "bolt",
@@ -237,12 +240,15 @@
       ],
       "update": [],
       "render": [],
-      "renderer": {
-        "type": "mesh",
-        "blend": "additive",
-        "mesh": "cylinder",
-        "orientation": "velocity"
-      }
+      "renderers": [
+        {
+          "type": "mesh",
+          "blend": "additive",
+          "mesh": "cylinder",
+          "orientation": "velocity",
+          "id": "bolt.r0"
+        }
+      ]
     }
   ],
   "parameters": []

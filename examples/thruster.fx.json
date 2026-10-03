@@ -164,12 +164,15 @@
           }
         }
       ],
-      "renderer": {
-        "type": "sprite",
-        "blend": "additive",
-        "shape": "glow",
-        "facing": "camera"
-      }
+      "renderers": [
+        {
+          "type": "sprite",
+          "blend": "additive",
+          "shape": "glow",
+          "facing": "camera",
+          "id": "exhaust.r0"
+        }
+      ]
     },
     {
       "id": "trail",
@@ -294,13 +297,16 @@
           }
         }
       ],
-      "renderer": {
-        "type": "ribbon",
-        "blend": "additive",
-        "shape": "softCircle",
-        "facing": "camera",
-        "uvMode": "stretch"
-      }
+      "renderers": [
+        {
+          "type": "ribbon",
+          "blend": "additive",
+          "shape": "softCircle",
+          "facing": "camera",
+          "uvMode": "stretch",
+          "id": "trail.r0"
+        }
+      ]
     }
   ],
   "parameters": [

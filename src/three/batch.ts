@@ -6,7 +6,7 @@
 import * as THREE from "three/webgpu";
 import type { EmitterSim } from "../sim/emitter";
 import type { EmitterTemplate } from "../sim/compile";
-import type { RibbonRendererDoc } from "../core/types";
+import type { RendererDoc, RibbonRendererDoc } from "../core/types";
 import { PARTICLE_ATTRIBUTES, PARTICLE_STRIDE } from "./materials/common";
 import { RIBBON_ATTRIBUTES, RIBBON_STRIDE } from "./materials/ribbon";
 import { KeySorter } from "./sort";
@@ -25,6 +25,8 @@ export interface SortView {
 export abstract class InstanceBatch {
   readonly mesh: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.Material>;
   readonly template: EmitterTemplate;
+  /** The renderer this batch draws (one batch per renderer per emitter). */
+  readonly renderer: RendererDoc;
   protected data: Float32Array;
   /** Instances written this frame. */
   protected count = 0;
@@ -44,8 +46,9 @@ export abstract class InstanceBatch {
    *   because disposing a geometry frees its attributes' GPU buffers)
    * @param attributes vec4 attribute names, laid out consecutively in each instance's `stride` floats
    */
-  constructor(template: EmitterTemplate, material: THREE.Material, base: () => THREE.BufferGeometry, stride: number, attributes: readonly string[], capacity: number) {
+  constructor(template: EmitterTemplate, renderer: RendererDoc, material: THREE.Material, base: () => THREE.BufferGeometry, stride: number, attributes: readonly string[], capacity: number) {
     this.template = template;
+    this.renderer = renderer;
     this.#stride = stride;
     this.#attributes = attributes;
     this.#base = base;
@@ -53,10 +56,10 @@ export abstract class InstanceBatch {
     this.data = new Float32Array(this.#capacity * stride);
     this.#buffer = this.#makeBuffer();
     this.mesh = new THREE.Mesh(this.#makeGeometry(), material);
-    this.mesh.name = `particles:${template.doc.name}`;
+    this.mesh.name = `particles:${template.doc.name}:${renderer.type}`;
     this.mesh.frustumCulled = false;
     this.mesh.matrixAutoUpdate = false;
-    this.mesh.renderOrder = template.renderer.sortOrder ?? 0;
+    this.mesh.renderOrder = renderer.sortOrder ?? 0;
     this.mesh.visible = false;
   }
 
@@ -121,7 +124,7 @@ export abstract class InstanceBatch {
 
   /** Reorders this frame's instances by the renderer's sort mode. Both layouts keep age at +3 and lifetime at +10. */
   #sort(n: number, view: SortView | null): void {
-    const mode = this.template.renderer.sort ?? "none";
+    const mode = this.renderer.sort ?? "none";
     if (mode === "none" || (mode === "distance" && !view)) return;
     const stride = this.#stride;
     const data = this.data;
@@ -170,8 +173,14 @@ export abstract class InstanceBatch {
 
 /** One instance per particle: sprites (quad) and meshes (any geometry). */
 export class ParticleBatch extends InstanceBatch {
-  constructor(template: EmitterTemplate, material: THREE.Material, base: () => THREE.BufferGeometry = () => new THREE.PlaneGeometry(1, 1), capacity = template.capacity) {
-    super(template, material, base, PARTICLE_STRIDE, Object.values(PARTICLE_ATTRIBUTES), capacity);
+  constructor(
+    template: EmitterTemplate,
+    renderer: RendererDoc,
+    material: THREE.Material,
+    base: () => THREE.BufferGeometry = () => new THREE.PlaneGeometry(1, 1),
+    capacity = template.capacity,
+  ) {
+    super(template, renderer, material, base, PARTICLE_STRIDE, Object.values(PARTICLE_ATTRIBUTES), capacity);
   }
 
   get particles(): number {
@@ -256,8 +265,8 @@ export class RibbonBatch extends InstanceBatch {
   #u = new Float32Array(0);
   #un = new Float32Array(0);
 
-  constructor(template: EmitterTemplate, material: THREE.Material, capacity = template.capacity) {
-    super(template, material, () => new THREE.PlaneGeometry(1, 1), RIBBON_STRIDE, RIBBON_ATTRIBUTES, capacity);
+  constructor(template: EmitterTemplate, renderer: RibbonRendererDoc, material: THREE.Material, capacity = template.capacity) {
+    super(template, renderer, material, () => new THREE.PlaneGeometry(1, 1), RIBBON_STRIDE, RIBBON_ATTRIBUTES, capacity);
     this.sortPositions = [0, 16];
   }
 
@@ -327,7 +336,7 @@ export class RibbonBatch extends InstanceBatch {
    */
   #writeStrip(sim: EmitterSim, n: number, matrix: Float32Array | null, particle = -1): void {
     this.ensure(this.count + n - 1);
-    const r = this.template.renderer as RibbonRendererDoc;
+    const r = this.renderer as RibbonRendererDoc;
     const pts = this.#pts, pi = this.#pi, wp = this.#wp, tan = this.#tan, uu = this.#u, un = this.#un;
 
     // world positions

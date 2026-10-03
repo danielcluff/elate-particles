@@ -5,12 +5,12 @@
 // the same batch (`ref`).
 
 import { compileEffect } from "../sim/compile";
-import { createEmitter, createModule, defaultRenderer, findEmitter, findModule, uid, validateStructure } from "./doc";
+import { createEmitter, createModule, createRenderer, defaultRenderer, findEmitter, findModule, findRenderer, uid, validateStructure } from "./doc";
 import { checkParam } from "./params";
 import { allModuleDefs, getModuleDef } from "./registry";
 import type { EffectDoc, EffectParameter, EmitterDoc, Issue, RendererDoc, SubEmitterBinding } from "./types";
 
-type EmitterProps = Partial<Omit<EmitterDoc, "id" | "spawn" | "init" | "update" | "render" | "renderer" | "subEmitters">>;
+type EmitterProps = Partial<Omit<EmitterDoc, "id" | "spawn" | "init" | "update" | "render" | "renderers" | "subEmitters">>;
 
 export type Command =
   | { op: "getEffect" }
@@ -25,7 +25,11 @@ export type Command =
   | { op: "updateModule"; emitterId: string; moduleId: string; params?: Record<string, unknown>; enabled?: boolean; label?: string }
   | { op: "removeModule"; emitterId: string; moduleId: string }
   | { op: "moveModule"; emitterId: string; moduleId: string; index: number }
-  | { op: "setRenderer"; emitterId: string; renderer: Partial<RendererDoc> }
+  /** Updates a renderer (the first when rendererId is omitted). Changing `type` starts from that type's defaults. */
+  | { op: "setRenderer"; emitterId: string; rendererId?: string; renderer: Partial<RendererDoc> }
+  | { op: "addRenderer"; emitterId: string; renderer: Partial<RendererDoc> & { type: RendererDoc["type"] }; index?: number; ref?: string }
+  | { op: "removeRenderer"; emitterId: string; rendererId: string }
+  | { op: "moveRenderer"; emitterId: string; rendererId: string; index: number }
   | { op: "setSubEmitters"; emitterId: string; subEmitters: SubEmitterBinding[] }
   | { op: "setParameter"; parameter: EffectParameter }
   | { op: "removeParameter"; name: string }
@@ -89,7 +93,7 @@ function apply(doc: EffectDoc, cmd: Command, refs: Refs): unknown {
     }
     case "updateEmitter": {
       const e = findEmitter(doc, ref(refs, cmd.emitterId));
-      const { id: _id, spawn: _s, init: _i, update: _u, render: _r, renderer: _rd, subEmitters: _se, ...props } = cmd.props as EmitterDoc;
+      const { id: _id, spawn: _s, init: _i, update: _u, render: _r, renderers: _rd, subEmitters: _se, ...props } = cmd.props as EmitterDoc;
       Object.assign(e, props);
       return { emitterId: e.id };
     }
@@ -106,6 +110,7 @@ function apply(doc: EffectDoc, cmd: Command, refs: Refs): unknown {
       copy.id = uid("e");
       copy.name = cmd.name ?? `${src.name} copy`;
       for (const stage of ["spawn", "init", "update", "render"] as const) for (const m of copy[stage]) m.id = uid("m");
+      for (const r of copy.renderers) r.id = uid("r");
       doc.emitters.splice(doc.emitters.indexOf(src) + 1, 0, copy);
       if (cmd.ref) refs.set(cmd.ref, copy.id);
       return { emitterId: copy.id };
@@ -156,10 +161,31 @@ function apply(doc: EffectDoc, cmd: Command, refs: Refs): unknown {
     }
     case "setRenderer": {
       const e = findEmitter(doc, ref(refs, cmd.emitterId));
+      const { index, renderer: cur } = findRenderer(e, cmd.rendererId === undefined ? undefined : ref(refs, cmd.rendererId));
       // switching type starts from that type's defaults so stale fields don't leak across
-      const base = cmd.renderer.type && cmd.renderer.type !== e.renderer.type ? defaultRenderer(cmd.renderer.type) : e.renderer;
-      e.renderer = { ...base, ...cmd.renderer } as RendererDoc;
-      return { renderer: e.renderer };
+      const base = cmd.renderer.type && cmd.renderer.type !== cur.type ? { ...defaultRenderer(cmd.renderer.type), id: cur.id } : cur;
+      e.renderers[index] = { ...base, ...cmd.renderer, id: cur.id } as RendererDoc;
+      return { rendererId: cur.id, renderer: e.renderers[index] };
+    }
+    case "addRenderer": {
+      const e = findEmitter(doc, ref(refs, cmd.emitterId));
+      const r = createRenderer(cmd.renderer.type, { ...cmd.renderer, id: undefined });
+      e.renderers.splice(clampIndex(cmd.index, e.renderers.length), 0, r);
+      if (cmd.ref) refs.set(cmd.ref, r.id!);
+      return { rendererId: r.id };
+    }
+    case "removeRenderer": {
+      const e = findEmitter(doc, ref(refs, cmd.emitterId));
+      const { index } = findRenderer(e, ref(refs, cmd.rendererId));
+      e.renderers.splice(index, 1);
+      return { removed: cmd.rendererId };
+    }
+    case "moveRenderer": {
+      const e = findEmitter(doc, ref(refs, cmd.emitterId));
+      const { index, renderer } = findRenderer(e, ref(refs, cmd.rendererId));
+      e.renderers.splice(index, 1);
+      e.renderers.splice(clampIndex(cmd.index, e.renderers.length), 0, renderer);
+      return { rendererId: renderer.id, index: e.renderers.indexOf(renderer) };
     }
     case "setSubEmitters": {
       const e = findEmitter(doc, ref(refs, cmd.emitterId));

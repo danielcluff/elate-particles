@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three/webgpu";
-import { EffectSim, compileEffect, createEffect, createEmitter, createModule, executeCommand, normalizeEffect, validateEffect, type EffectDoc, type EmitterDoc } from "../src/index";
+import { EffectSim, compileEffect, createEffect, createEmitter, createModule, executeCommand, normalizeEffect, validateEffect, type EffectDoc, type RendererDoc, type RibbonRendererDoc } from "../src/index";
 import { ParticleBatch, RibbonBatch, RIBBON_STRIDE } from "../src/three";
 
-function trail(renderer: Partial<EmitterDoc["renderer"]> = {}): EffectDoc {
+function trail(renderer: Partial<RendererDoc> = {}): EffectDoc {
   const doc = createEffect("trail", { emitter: false });
   const e = createEmitter("trail", "empty");
   e.spawn.push(createModule("spawn.distance", { perUnit: 1 }));
   e.init.push(createModule("init.shape", { shape: "point", speed: 0 }), createModule("init.lifetime", { lifetime: 10 }), createModule("init.size", { size: 0.5 }));
-  e.renderer = { type: "ribbon", blend: "additive", shape: "softCircle", facing: "camera", uvMode: "stretch", ...renderer } as EmitterDoc["renderer"];
+  e.renderers = [{ type: "ribbon", blend: "additive", shape: "softCircle", facing: "camera", uvMode: "stretch", ...renderer } as RendererDoc];
   doc.emitters.push(e);
   return doc;
 }
@@ -37,7 +37,7 @@ describe("ribbon packing", () => {
 
   function packed(doc: EffectDoc, steps: number, instances = 1) {
     const tpl = compileEffect(doc);
-    const batch = new RibbonBatch(tpl.emitters[0], material);
+    const batch = new RibbonBatch(tpl.emitters[0], tpl.emitters[0].renderers[0] as RibbonRendererDoc, material);
     const sims = Array.from({ length: instances }, (_, k) => new EffectSim(tpl).setPosition(0, 0, k * 10).play());
     for (let i = 1; i <= steps; i++) for (const [k, s] of sims.entries()) s.setPosition(i, 0, k * 10).step(1 / 60);
     batch.begin();
@@ -72,7 +72,7 @@ describe("ribbon packing", () => {
   });
 
   it("tile u follows world distance", () => {
-    const { data } = packed(trail({ uvMode: "tile", uvTile: 2 } as Partial<EmitterDoc["renderer"]>), 5);
+    const { data } = packed(trail({ uvMode: "tile", uvTile: 2 } as Partial<RendererDoc>), 5);
     // 5 points 1 unit apart: oldest is 4 units from the head → u = 2
     expect(data[7]).toBeCloseTo(2);
   });
@@ -94,7 +94,7 @@ describe("mesh renderer", () => {
     const doc = createEffect("debris");
     executeCommand(doc, { op: "setRenderer", emitterId: doc.emitters[0].id, renderer: { type: "mesh" } });
     const tpl = compileEffect(doc);
-    const batch = new ParticleBatch(tpl.emitters[0], new THREE.MeshBasicNodeMaterial(), () => new THREE.IcosahedronGeometry(0.5, 0));
+    const batch = new ParticleBatch(tpl.emitters[0], tpl.emitters[0].renderers[0], new THREE.MeshBasicNodeMaterial(), () => new THREE.IcosahedronGeometry(0.5, 0));
     const sim = new EffectSim(tpl).play();
     for (let i = 0; i < 30; i++) sim.step(1 / 60);
     batch.begin();
@@ -112,20 +112,20 @@ describe("renderer documents", () => {
     const id = doc.emitters[0].id;
     executeCommand(doc, { op: "setRenderer", emitterId: id, renderer: { facing: "velocity", stretch: 0.3 } });
     executeCommand(doc, { op: "setRenderer", emitterId: id, renderer: { type: "ribbon", uvMode: "tile" } });
-    expect(doc.emitters[0].renderer).toEqual({ type: "ribbon", blend: "additive", shape: "softCircle", facing: "camera", uvMode: "tile" });
+    expect(doc.emitters[0].renderers[0]).toEqual({ id: doc.emitters[0].renderers[0].id, ...{ type: "ribbon", blend: "additive", shape: "softCircle", facing: "camera", uvMode: "tile" } });
     executeCommand(doc, { op: "setRenderer", emitterId: id, renderer: { type: "mesh", mesh: "box", lit: true } });
-    expect(doc.emitters[0].renderer).toEqual({ type: "mesh", blend: "opaque", mesh: "box", orientation: "random", lit: true });
+    expect(doc.emitters[0].renderers[0]).toEqual({ id: doc.emitters[0].renderers[0].id, ...{ type: "mesh", blend: "opaque", mesh: "box", orientation: "random", lit: true } });
     expect(validateEffect(doc)).toEqual([]);
   });
 
   it("normalises partial renderers with their type's defaults", () => {
     const doc = normalizeEffect({ emitters: [{ name: "a", renderer: { type: "mesh", mesh: "rock" } }] });
-    expect(doc.emitters[0].renderer).toEqual({ type: "mesh", blend: "opaque", mesh: "rock", orientation: "random" });
+    expect(doc.emitters[0].renderers[0]).toEqual({ id: doc.emitters[0].renderers[0].id, ...{ type: "mesh", blend: "opaque", mesh: "rock", orientation: "random" } });
   });
 
   it("flags unknown renderer types", () => {
     const doc = createEffect("x");
-    (doc.emitters[0].renderer as { type: string }).type = "decal";
+    (doc.emitters[0].renderers[0] as { type: string }).type = "decal";
     expect(validateEffect(doc).some((i) => i.message.includes("decal"))).toBe(true);
   });
 });
@@ -191,7 +191,7 @@ function sparks(trail = { points: 8, minDistance: 0.05, lifetime: 1 }): EffectDo
     createModule("init.lifetime", { lifetime: { kind: "range", min: 0.3, max: 2 } }),
     createModule("init.size", { size: 0.2 }),
   );
-  e.renderer = { type: "ribbon", mode: "particle", trail, taper: 1, fade: 1, blend: "additive", shape: "softCircle", facing: "camera", uvMode: "stretch" };
+  e.renderers = [{ type: "ribbon", mode: "particle", trail, taper: 1, fade: 1, blend: "additive", shape: "softCircle", facing: "camera", uvMode: "stretch" }];
   doc.emitters.push(e);
   return doc;
 }
@@ -203,7 +203,7 @@ describe("per-particle trails", () => {
     expect(e.ordered).toBe(false);
     expect(e.extraChannels).toContain("trailSlot");
     const d = sparks();
-    delete (d.emitters[0].renderer as { trail?: unknown }).trail;
+    delete (d.emitters[0].renderers[0] as { trail?: unknown }).trail;
     expect(compileEffect(d).emitters[0].trail).toEqual({ points: 16, minDistance: 0.1, lifetime: 0.5 });
     expect(validateEffect(sparks())).toEqual([]);
   });
@@ -223,7 +223,7 @@ describe("per-particle trails", () => {
     const tpl = compileEffect(sparks({ points: 32, minDistance: 0.05, lifetime: 1 }));
     const sim = new EffectSim(tpl).play();
     for (let i = 0; i < 12; i++) sim.step(1 / 60);
-    const batch = new RibbonBatch(tpl.emitters[0], new THREE.MeshBasicNodeMaterial());
+    const batch = new RibbonBatch(tpl.emitters[0], tpl.emitters[0].renderers[0] as RibbonRendererDoc, new THREE.MeshBasicNodeMaterial());
     batch.begin();
     batch.pack(sim.emitters[0], null);
     batch.end();
@@ -263,8 +263,8 @@ describe("depth fades", () => {
     const doc = createEffect("soft");
     executeCommand(doc, { op: "setRenderer", emitterId: doc.emitters[0].id, renderer: { blend: "alpha", depthFade: 0.5, cameraFade: 1 } });
     expect(validateEffect(doc)).toEqual([]);
-    expect(createSpriteMaterial(compileEffect(doc).emitters[0], null, opts).opacityNode).toBeTruthy();
-    expect(createRibbonMaterial(compileEffect(trail({ depthFade: 0.5 } as Partial<EmitterDoc["renderer"]>)).emitters[0], null, opts).opacityNode).toBeTruthy();
+    expect(createSpriteMaterial(compileEffect(doc).emitters[0], compileEffect(doc).emitters[0].renderers[0] as never, null, opts).opacityNode).toBeTruthy();
+    expect(createRibbonMaterial(compileEffect(trail({ depthFade: 0.5 } as Partial<RendererDoc>)).emitters[0], compileEffect(trail({ depthFade: 0.5 } as Partial<RendererDoc>)).emitters[0].renderers[0] as RibbonRendererDoc, null, opts).opacityNode).toBeTruthy();
   });
 
   it("rejects negative fade distances", () => {

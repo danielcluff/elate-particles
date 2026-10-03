@@ -185,17 +185,20 @@
           }
         }
       ],
-      "renderer": {
-        "type": "sprite",
-        "blend": "alpha",
-        "shape": "softCircle",
-        "facing": "camera",
-        "softness": 0.8,
-        "sortOrder": -1,
-        "sort": "distance",
-        "depthFade": 0.6,
-        "cameraFade": 1
-      }
+      "renderers": [
+        {
+          "type": "sprite",
+          "blend": "alpha",
+          "shape": "softCircle",
+          "facing": "camera",
+          "softness": 0.8,
+          "sortOrder": -1,
+          "sort": "distance",
+          "depthFade": 0.6,
+          "cameraFade": 1,
+          "id": "smoke.r0"
+        }
+      ]
     },
     {
       "id": "fire",
@@ -368,13 +371,16 @@
           }
         }
       ],
-      "renderer": {
-        "type": "sprite",
-        "blend": "additive",
-        "shape": "softCircle",
-        "facing": "camera",
-        "depthFade": 0.3
-      }
+      "renderers": [
+        {
+          "type": "sprite",
+          "blend": "additive",
+          "shape": "softCircle",
+          "facing": "camera",
+          "depthFade": 0.3,
+          "id": "fire.r0"
+        }
+      ]
     },
     {
       "id": "embers",
@@ -510,13 +516,16 @@
           }
         }
       ],
-      "renderer": {
-        "type": "sprite",
-        "blend": "additive",
-        "shape": "spark",
-        "facing": "velocity",
-        "stretch": 0.08
-      }
+      "renderers": [
+        {
+          "type": "sprite",
+          "blend": "additive",
+          "shape": "spark",
+          "facing": "velocity",
+          "stretch": 0.08,
+          "id": "embers.r0"
+        }
+      ]
     }
   ],
   "parameters": []
