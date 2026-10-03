@@ -1,4 +1,4 @@
-# tsl-particles: design
+# elate-particles: design
 
 A data-driven particle system for three.js (WebGPU/TSL). It has three consumers:
 
