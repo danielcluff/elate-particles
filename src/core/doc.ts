@@ -142,6 +142,8 @@ export function validateStructure(doc: EffectDoc): Issue[] {
     if (!RENDERER_TYPES.includes(r?.type)) issues.push({ level: "error", message: `Unknown renderer type "${String(r?.type)}"`, emitterId: e.id });
     else if (r.type !== "mesh" && r.shape === "texture" && !r.texture) issues.push({ level: "warning", message: "Texture shape without a texture", emitterId: e.id });
     else if (r.type === "mesh" && !r.mesh) issues.push({ level: "error", message: "Mesh renderer needs a mesh", emitterId: e.id });
+    if (r?.sort !== undefined && !["none", "distance", "oldestOnTop", "newestOnTop"].includes(r.sort))
+      issues.push({ level: "error", message: `Unknown sort mode "${String(r.sort)}"`, emitterId: e.id });
     if (r?.type === "ribbon" && r.mode !== "particle" && e.maxParticles > 2000)
       issues.push({ level: "warning", message: "Ribbons rarely need more than a few hundred points", emitterId: e.id });
     if (r?.type === "ribbon" && r.mode === "particle" && r.trail) {

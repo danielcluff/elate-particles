@@ -92,6 +92,13 @@ export interface ModuleInstance {
   params: Record<string, unknown>;
 }
 
+/**
+ * Draw order of particles *within* an emitter (across all its live instances):
+ * distance = back to front along the camera's view direction (needed for alpha
+ * blending), oldestOnTop / newestOnTop = by age. Between emitters, sortOrder decides.
+ */
+export type SortMode = "none" | "distance" | "oldestOnTop" | "newestOnTop";
+
 /** "opaque" writes depth and ignores alpha (solid debris meshes). */
 export type BlendMode = "additive" | "alpha" | "premultiplied" | "opaque";
 export type SpriteShape = "softCircle" | "circle" | "glow" | "spark" | "ring" | "square" | "texture";
@@ -117,6 +124,8 @@ export interface SpriteRendererDoc {
   stretch?: number;
   /** Draw order between emitters (higher draws later). */
   sortOrder?: number;
+  /** Particle draw order within this emitter. Default "none". "distance" needs a camera in ParticleWorld.update. */
+  sort?: SortMode;
   /** Scale applied to the sprite (shape falloff, glow strength). */
   softness?: number;
 }
@@ -143,6 +152,8 @@ export interface MeshRendererDoc {
   /** Colour map sampled with the geometry's UVs. */
   texture?: string;
   sortOrder?: number;
+  /** Particle draw order within this emitter. Default "none". "distance" needs a camera in ParticleWorld.update. */
+  sort?: SortMode;
 }
 
 /** Per-particle trail history (ribbon mode "particle"). */
@@ -183,6 +194,8 @@ export interface RibbonRendererDoc {
   uvMode: "stretch" | "tile";
   uvTile?: number;
   sortOrder?: number;
+  /** Particle draw order within this emitter. Default "none". "distance" needs a camera in ParticleWorld.update. */
+  sort?: SortMode;
   softness?: number;
 }
 

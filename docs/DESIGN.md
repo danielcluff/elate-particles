@@ -105,6 +105,19 @@ How ribbons work:
   offset + size ≤ the buffer's stride.)
 - Particle size is the ribbon width. Size/colour over life, `taper` and `fade` shape the tail.
 
+### Sorting
+
+`renderer.sort` (sprite, mesh, ribbon): `none` (default), `distance` (back to front along the camera's view direction;
+needs `world.update(dt, camera)`), `oldestOnTop`, `newestOnTop`.
+
+- It sorts **the whole batch after packing**, so the order is correct across every live instance of the emitter
+  (overlapping smoke from several explosions), not just within each one. Ribbons sort segments by their midpoint.
+- Keys are quantised to 16 bits within the batch's range, then sorted by a **stable two-pass radix sort** (`KeySorter`):
+  O(n), no comparator, no steady-state allocation. Cost is about 26 ns per particle, mostly the permutation copy:
+  0.5 ms for 20k particles, 3 ms for 100k (`scripts/bench-sort.ts`). Turn it on only where blending needs it (alpha or
+  premultiplied smoke); additive emitters are order-independent.
+- Between emitters, `sortOrder` (the mesh's `renderOrder`) decides.
+
 Per-particle trails (`mode: "particle"`, Unity's Trails module):
 
 - History lives in a `TrailStore` (`src/sim/trails.ts`), not in particle channels. Each trailed particle owns a slot:
@@ -192,7 +205,8 @@ else is ~15–20 ns per particle.
 1. **GPU compute backend.** Same `EffectDoc`, with modules supplying a TSL implementation next to the CPU one, for
    100k+ particle emitters (`emitter.sim: "cpu" | "gpu"`, as in Niagara). The CPU path stays the default because it
    supports gameplay callbacks, sub-emitters and determinism cheaply.
-2. **Back-to-front sorting** for alpha-blended emitters. Smoke currently relies on soft shapes and premultiplied alpha.
+2. **Cross-emitter sorting.** Particles sort within an emitter; between emitters, `sortOrder` decides (as in Unity and
+   Niagara). Interleaving two alpha emitters correctly would need merging their batches.
 3. **Soft particles** (depth fade against the scene depth texture). Needs a depth pass from the host pipeline.
 4. **Multiple renderers per emitter** (Niagara allows several): a spark as a sprite head *and* a trail currently takes
    two emitters, or a trail with a bright head via `fade`.
@@ -357,7 +371,7 @@ on it. That's the only change Phase 3 asks of tsl-graph.
 | --- | --- | --- |
 | **1** ✅ | Runtime library | Core, 20 modules, CPU sim, batched TSL sprite/mesh/ribbon renderers, Redshift adapter, examples, tests, playground |
 | 1.1 | Redshift adoption | Wire `ParticleWorld` into `Game.ts`; thrusters on ships; replace `EffectSpawner`; delete the old particle system |
-| 1.2 | Runtime gaps | ✅ mesh + ribbon renderers, per-particle trails; next: sorting, soft particles, world budget/LOD |
+| 1.2 | Runtime gaps | ✅ mesh + ribbon renderers, per-particle trails, sorting; next: soft particles, world budget/LOD |
 | **2** | Effect editor | Stack UI, value widgets, timeline, viewport, store and undo, MCP + AI chat, `particle` graph kind in tsl-graph |
 | 2.1 | GPU backend | TSL compute implementations for built-in modules, `sim: "gpu"` per emitter |
 | **3** | FX studio | Monorepo, `studio-kit` extraction, asset model, prefabs, unified MCP, export bundle |

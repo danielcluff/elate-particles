@@ -192,7 +192,7 @@ renderer.setAnimationLoop(() => {
   const t = clock.getElapsed();
   scenes[current].update(dt, t);
   const t0 = performance.now();
-  world.update(dt);
+  world.update(dt, camera);
   simMs += performance.now() - t0;
   controls.update();
   renderer.render(scene, camera);

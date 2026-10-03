@@ -9,7 +9,7 @@ import type { EffectDoc } from "../core/types";
 import { compileEffect, type EffectTemplate } from "../sim/compile";
 import { EffectSim } from "../sim/effect";
 import type { EmitterTemplate } from "../sim/compile";
-import { InstanceBatch, ParticleBatch, RibbonBatch } from "./batch";
+import { InstanceBatch, ParticleBatch, RibbonBatch, type SortView } from "./batch";
 import { createBuiltinMesh } from "./geometries";
 import { createLutTexture, type MaterialOptions, type ParticleMaterialContext } from "./materials/common";
 import { createMeshMaterial } from "./materials/mesh";
@@ -317,7 +317,14 @@ export class ParticleWorld {
     if (reg && sim.template === reg.template) reg.pool.push(sim);
   }
 
-  update(dt: number): void {
+  readonly #view: SortView = { px: 0, py: 0, pz: 0, fx: 0, fy: 0, fz: -1 };
+  #warnedNoCamera = false;
+
+  /**
+   * Steps every live effect and fills the GPU buffers. Pass the camera that
+   * will render the frame when any emitter uses `sort: "distance"`.
+   */
+  update(dt: number, camera?: THREE.Camera): void {
     dt = Math.min(dt, this.#opts.maxDelta ?? 0.1);
     if (dt <= 0) return;
     this.time.value += dt;
@@ -341,7 +348,28 @@ export class ParticleWorld {
       const batches = this.#effects.get(h.effectId)!.batches;
       for (const e of sim.emitters) batches[e.template.index].pack(e, e.template.space === "local" ? sim.matrix : null);
     }
-    for (const reg of this.#effects.values()) for (const b of reg.batches) b.end();
+    let view: SortView | null = null;
+    if (camera) {
+      camera.updateMatrixWorld();
+      const e = camera.matrixWorld.elements;
+      const v = this.#view;
+      const l = Math.sqrt(e[8] * e[8] + e[9] * e[9] + e[10] * e[10]) || 1;
+      v.px = e[12];
+      v.py = e[13];
+      v.pz = e[14];
+      v.fx = -e[8] / l;
+      v.fy = -e[9] / l;
+      v.fz = -e[10] / l;
+      view = v;
+    } else if (!this.#warnedNoCamera) {
+      for (const reg of this.#effects.values())
+        if (reg.template.emitters.some((em) => em.renderer.sort === "distance")) {
+          console.warn('tsl-particles: an emitter uses sort: "distance" but ParticleWorld.update() was called without a camera; it is drawn unsorted');
+          this.#warnedNoCamera = true;
+          break;
+        }
+    }
+    for (const reg of this.#effects.values()) for (const b of reg.batches) b.end(view);
   }
 
   get stats(): ParticleWorldStats {

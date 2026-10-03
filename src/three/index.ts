@@ -2,7 +2,8 @@
 import "../index";
 
 export { ParticleWorld, ParticleEffect, type ParticleWorldOptions, type SpawnOptions, type ParticleWorldStats } from "./world";
-export { InstanceBatch, ParticleBatch, RibbonBatch, SpriteBatch } from "./batch";
+export { InstanceBatch, ParticleBatch, RibbonBatch, SpriteBatch, type SortView } from "./batch";
+export { KeySorter } from "./sort";
 export { createSpriteMaterial } from "./materials/sprite";
 export { createMeshMaterial } from "./materials/mesh";
 export { createRibbonMaterial, RIBBON_ATTRIBUTES, RIBBON_STRIDE } from "./materials/ribbon";

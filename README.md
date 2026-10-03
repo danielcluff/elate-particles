@@ -35,7 +35,7 @@ const engine = world.spawn("thruster", { autoRelease: false, params: { throttle:
 
 renderer.setAnimationLoop(() => {
   engine.setTransform(ship.position, ship.quaternion).setParam("throttle", input.forward ? 1 : 0.1);
-  world.update(clock.getDelta());
+  world.update(clock.getDelta(), camera); // camera: for emitters with sort: "distance"
   renderer.render(scene, camera);
 });
 ```

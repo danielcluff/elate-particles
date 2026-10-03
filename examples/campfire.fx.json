@@ -191,7 +191,8 @@
         "shape": "softCircle",
         "facing": "camera",
         "softness": 0.8,
-        "sortOrder": -1
+        "sortOrder": -1,
+        "sort": "distance"
       }
     },
     {

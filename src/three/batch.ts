@@ -9,6 +9,17 @@ import type { EmitterTemplate } from "../sim/compile";
 import type { RibbonRendererDoc } from "../core/types";
 import { PARTICLE_ATTRIBUTES, PARTICLE_STRIDE } from "./materials/common";
 import { RIBBON_ATTRIBUTES, RIBBON_STRIDE } from "./materials/ribbon";
+import { KeySorter } from "./sort";
+
+/** Camera position and unit forward vector (world space), for distance sorting. */
+export interface SortView {
+  px: number;
+  py: number;
+  pz: number;
+  fx: number;
+  fy: number;
+  fz: number;
+}
 
 /** Shared instanced-buffer management; subclasses decide what an instance is. */
 export abstract class InstanceBatch {
@@ -22,6 +33,11 @@ export abstract class InstanceBatch {
   readonly #stride: number;
   readonly #attributes: readonly string[];
   readonly #base: () => THREE.BufferGeometry;
+  /** Float offsets of the position(s) a sort key is taken from (averaged); ribbons use both segment ends. */
+  protected sortPositions: readonly number[] = [0];
+  #sorter: KeySorter | null = null;
+  #keys = new Float32Array(0);
+  #scratch = new Float32Array(0);
 
   /**
    * @param base returns a fresh copy of the per-instance geometry (each batch geometry owns its attributes,
@@ -91,14 +107,57 @@ export abstract class InstanceBatch {
     this.count = 0;
   }
 
-  end(): void {
+  /** Finishes the frame: sorts (if the renderer asks for it) and schedules the upload. */
+  end(view: SortView | null = null): void {
     const n = this.count;
     this.mesh.geometry.instanceCount = n;
     this.mesh.visible = n > 0;
     if (n === 0) return;
+    if (n > 1) this.#sort(n, view);
     this.#buffer.clearUpdateRanges();
     this.#buffer.addUpdateRange(0, n * this.#stride);
     this.#buffer.needsUpdate = true;
+  }
+
+  /** Reorders this frame's instances by the renderer's sort mode. Both layouts keep age at +3 and lifetime at +10. */
+  #sort(n: number, view: SortView | null): void {
+    const mode = this.template.renderer.sort ?? "none";
+    if (mode === "none" || (mode === "distance" && !view)) return;
+    const stride = this.#stride;
+    const data = this.data;
+    if (this.#keys.length < n) {
+      this.#keys = new Float32Array(Math.max(n, this.#keys.length * 2));
+      this.#scratch = new Float32Array(this.#keys.length * stride);
+    }
+    const keys = this.#keys;
+    let descending: boolean;
+    if (mode === "distance") {
+      // view-space depth: farthest first
+      const { px, py, pz, fx, fy, fz } = view!;
+      const offs = this.sortPositions;
+      const inv = 1 / offs.length;
+      for (let i = 0, o = 0; i < n; i++, o += stride) {
+        let x = 0, y = 0, z = 0;
+        for (let k = 0; k < offs.length; k++) {
+          x += data[o + offs[k]];
+          y += data[o + offs[k] + 1];
+          z += data[o + offs[k] + 2];
+        }
+        keys[i] = (x * inv - px) * fx + (y * inv - py) * fy + (z * inv - pz) * fz;
+      }
+      descending = true;
+    } else {
+      // age in seconds; drawn last = on top
+      for (let i = 0, o = 0; i < n; i++, o += stride) keys[i] = data[o + 3] * data[o + 10];
+      descending = mode === "newestOnTop";
+    }
+    const order = (this.#sorter ??= new KeySorter()).order(keys, n, descending);
+    const scratch = this.#scratch;
+    scratch.set(data.subarray(0, n * stride));
+    for (let i = 0, dst = 0; i < n; i++, dst += stride) {
+      const src = order[i] * stride;
+      for (let c = 0; c < stride; c++) data[dst + c] = scratch[src + c];
+    }
   }
 
   dispose(): void {
@@ -199,6 +258,7 @@ export class RibbonBatch extends InstanceBatch {
 
   constructor(template: EmitterTemplate, material: THREE.Material, capacity = template.capacity) {
     super(template, material, () => new THREE.PlaneGeometry(1, 1), RIBBON_STRIDE, RIBBON_ATTRIBUTES, capacity);
+    this.sortPositions = [0, 16];
   }
 
   get particles(): number {

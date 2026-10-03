@@ -45,7 +45,7 @@ for (const id of ["explosion", "thruster", "shield-hit"]) {
 
 // onStep: after entityManager.lateStep, so effects see final entity transforms
 this.#entityManager_.lateStep(timeElapsed, totalTime);
-this.#particles_.update(timeElapsed);
+this.#particles_.update(timeElapsed, this.Camera); // camera enables sort: "distance" (smoke)
 
 // teardown
 this.#particles_.dispose();
