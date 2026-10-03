@@ -5,7 +5,8 @@
 
 import { checkParam, resolveParams } from "../core/params";
 import { getModuleDef, type ModuleDef, type ModuleRuntime } from "../core/registry";
-import type { EffectDoc, EmitterDoc, Issue, ModuleInstance, RendererDoc } from "../core/types";
+import type { EffectDoc, EmitterDoc, Issue, ModuleInstance, RendererDoc, TrailSettings } from "../core/types";
+import { DEFAULT_TRAIL } from "../core/doc";
 import { hashString, type ParamValues } from "../core/values";
 
 export interface CompiledModule {
@@ -46,6 +47,13 @@ export interface EmitterTemplate {
   sizeLut: Float32Array | null;
   colorLut: Float32Array | null;
   renderer: RendererDoc;
+  /**
+   * Keep particles in spawn order (oldest first). Ribbons need it; it costs an
+   * order-preserving compaction instead of swap-remove when particles die.
+   */
+  ordered: boolean;
+  /** Per-particle trail history settings (ribbon mode "particle"), else null. */
+  trail: TrailSettings | null;
   birth: ResolvedSubEmitter[];
   death: ResolvedSubEmitter[];
 }
@@ -140,6 +148,9 @@ export function compileEffect(doc: EffectDoc): EffectTemplate {
           return [{ target, count: Math.max(0, Math.round(s.count)), probability: s.probability ?? 1, inheritVelocity: s.inheritVelocity ?? 0, inheritColor: s.inheritColor ?? false }];
         });
 
+    const r = e.renderer;
+    const trail: TrailSettings | null = r?.type === "ribbon" && r.mode === "particle" ? { ...DEFAULT_TRAIL, ...r.trail } : null;
+
     return {
       doc: e,
       index,
@@ -157,10 +168,12 @@ export function compileEffect(doc: EffectDoc): EffectTemplate {
       initSim: init.filter((m) => m.def.phase === "sim"),
       update,
       stateSize: offset.n,
-      extraChannels: [...extra],
+      extraChannels: trail ? [...extra, "trailSlot"] : [...extra],
       sizeLut,
       colorLut,
       renderer: e.renderer,
+      ordered: e.renderer?.type === "ribbon" && !trail,
+      trail,
       birth: resolveSubs("birth"),
       death: resolveSubs("death"),
     };

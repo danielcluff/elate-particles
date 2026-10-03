@@ -5,7 +5,7 @@
 // the same batch (`ref`).
 
 import { compileEffect } from "../sim/compile";
-import { createEmitter, createModule, findEmitter, findModule, uid, validateStructure } from "./doc";
+import { createEmitter, createModule, defaultRenderer, findEmitter, findModule, uid, validateStructure } from "./doc";
 import { checkParam } from "./params";
 import { allModuleDefs, getModuleDef } from "./registry";
 import type { EffectDoc, EffectParameter, EmitterDoc, Issue, RendererDoc, SubEmitterBinding } from "./types";
@@ -156,7 +156,9 @@ function apply(doc: EffectDoc, cmd: Command, refs: Refs): unknown {
     }
     case "setRenderer": {
       const e = findEmitter(doc, ref(refs, cmd.emitterId));
-      e.renderer = { ...e.renderer, ...cmd.renderer } as RendererDoc;
+      // switching type starts from that type's defaults so stale fields don't leak across
+      const base = cmd.renderer.type && cmd.renderer.type !== e.renderer.type ? defaultRenderer(cmd.renderer.type) : e.renderer;
+      e.renderer = { ...base, ...cmd.renderer } as RendererDoc;
       return { renderer: e.renderer };
     }
     case "setSubEmitters": {

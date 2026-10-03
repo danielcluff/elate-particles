@@ -2,5 +2,11 @@
 import "../index";
 
 export { ParticleWorld, ParticleEffect, type ParticleWorldOptions, type SpawnOptions, type ParticleWorldStats } from "./world";
-export { SpriteBatch } from "./batch";
-export { createSpriteMaterial, createLutTexture, SPRITE_ATTRIBUTES, SPRITE_STRIDE, type SpriteMaterialContext } from "./sprite-material";
+export { InstanceBatch, ParticleBatch, RibbonBatch, SpriteBatch } from "./batch";
+export { createSpriteMaterial } from "./materials/sprite";
+export { createMeshMaterial } from "./materials/mesh";
+export { createRibbonMaterial, RIBBON_ATTRIBUTES, RIBBON_STRIDE } from "./materials/ribbon";
+export { createLutTexture, PARTICLE_ATTRIBUTES, PARTICLE_STRIDE, type ParticleMaterialContext, type MaterialOptions } from "./materials/common";
+export { createBuiltinMesh, isBuiltinMesh } from "./geometries";
+/** @deprecated renamed to ParticleMaterialContext */
+export type { ParticleMaterialContext as SpriteMaterialContext } from "./materials/common";

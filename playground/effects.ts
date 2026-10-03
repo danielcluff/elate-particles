@@ -1,9 +1,9 @@
 // Demo effects, authored as plain documents (the same JSON the editor will save).
-import { createModule, defaultRenderer, type EffectDoc, type EmitterDoc, type ModuleInstance, type SpriteRendererDoc } from "../src/index";
+import { createModule, defaultRenderer, type EffectDoc, type EmitterDoc, type ModuleInstance, type RendererDoc } from "../src/index";
 
 type Mods = [string, Record<string, unknown>?][];
 
-function emitter(id: string, props: Partial<EmitterDoc>, mods: Mods, renderer: Partial<SpriteRendererDoc> = {}): EmitterDoc {
+function emitter(id: string, props: Partial<EmitterDoc>, mods: Mods, renderer: Partial<RendererDoc> = {}): EmitterDoc {
   const e: EmitterDoc = {
     id,
     name: id,
@@ -16,7 +16,7 @@ function emitter(id: string, props: Partial<EmitterDoc>, mods: Mods, renderer: P
     init: [],
     update: [],
     render: [],
-    renderer: { ...defaultRenderer(), ...renderer },
+    renderer: { ...defaultRenderer(renderer.type), ...renderer } as RendererDoc,
     ...props,
   };
   for (const [type, params] of mods) {
@@ -127,17 +127,17 @@ export const thruster = effect(
     ),
     emitter(
       "trail",
-      { maxParticles: 600 },
+      { maxParticles: 200 },
       [
-        ["spawn.distance", { perUnit: 4 }],
-        ["init.lifetime", { lifetime: range(1.2, 1.8) }],
-        ["init.shape", { shape: "sphere", radius: 0.1, speed: 0.2 }],
-        ["init.size", { size: 0.25 }],
-        ["init.color", { color: { kind: "constant", color: "#88aaff", alpha: 0.35 } }],
-        ["render.sizeOverLife", { curve: curve(0, 1, 1, 2.5) }],
-        ["render.colorOverLife", { gradient: { colors: [{ t: 0, color: "#ffffff" }], alphas: [{ t: 0, a: 1 }, { t: 1, a: 0 }] } }],
+        ["spawn.distance", { perUnit: 2 }],
+        ["init.lifetime", { lifetime: 1.6 }],
+        ["init.shape", { shape: "point", speed: 0 }],
+        ["init.size", { size: 0.35 }],
+        ["init.color", { color: { kind: "constant", color: "#88aaff", intensity: 1.5 } }],
+        ["render.sizeOverLife", { curve: curve(0, 1, 1, 2) }],
+        ["render.colorOverLife", { gradient: { colors: [{ t: 0, color: "#ffffff" }, { t: 1, color: "#2244ff" }], alphas: [{ t: 0, a: 0.8 }, { t: 1, a: 0 }] } }],
       ],
-      { blend: "additive", shape: "softCircle" },
+      { type: "ribbon", blend: "additive", shape: "softCircle", uvMode: "stretch" },
     ),
   ],
   [{ name: "throttle", type: "float", default: 1, min: 0, max: 1, description: "Engine output 0..1" }],
@@ -210,6 +210,23 @@ export const explosion = effect("explosion", "Explosion", [
     subEmitters: [{ trigger: "death", emitter: "puff", count: 1, probability: 0.5, inheritVelocity: 0.1 }],
   },
   emitter(
+    "debris",
+    { ...oneShot, maxParticles: 30 },
+    [
+      ["spawn.burst", { count: 16 }],
+      ["init.lifetime", { lifetime: range(1.6, 2.4) }],
+      ["init.shape", { shape: "hemisphere", radius: 0.3, speed: range(4, 9) }],
+      ["init.size", { size: range(0.12, 0.3) }],
+      ["init.rotation", { spin: range(-540, 540) }],
+      ["init.color", { color: { kind: "range", a: "#3a3430", b: "#6b5e52" } }],
+      ["update.gravity", {}],
+      ["update.drag", { drag: 0.3 }],
+      ["update.collisionPlane", { bounce: 0.35, friction: 0.5 }],
+      ["render.sizeOverLife", { curve: { keys: [{ t: 0, v: 1 }, { t: 0.85, v: 1 }, { t: 1, v: 0 }], interp: "smooth" } }],
+    ],
+    { type: "mesh", blend: "opaque", mesh: "icosahedron", orientation: "random", lit: true, roughness: 0.8 },
+  ),
+  emitter(
     "flash",
     { ...oneShot, maxParticles: 2 },
     [
@@ -254,4 +271,82 @@ export const explosion = effect("explosion", "Explosion", [
   ),
 ]);
 
-export const ALL_EFFECTS = [campfire, thruster, explosion];
+// ---------------------------------------------------------------------------
+
+/** A fast projectile: ribbon tracer, glowing head, velocity-aligned bolt mesh. */
+export const tracer = effect("tracer", "Tracer", [
+  emitter(
+    "trail",
+    { maxParticles: 64 },
+    [
+      ["spawn.distance", { perUnit: 1.5 }],
+      ["init.lifetime", { lifetime: 0.35 }],
+      ["init.shape", { shape: "point", speed: 0 }],
+      ["init.size", { size: 0.18 }],
+      ["init.color", { color: { kind: "constant", color: "#ff9a40", intensity: 4 } }],
+      ["render.sizeOverLife", { curve: { keys: [{ t: 0, v: 1 }, { t: 1, v: 0.2 }] } }],
+      ["render.colorOverLife", { gradient: { colors: [{ t: 0, color: "#ffffff" }, { t: 1, color: "#ff3300" }], alphas: [{ t: 0, a: 1 }, { t: 1, a: 0 }] } }],
+    ],
+    { type: "ribbon", blend: "additive", shape: "glow", uvMode: "stretch" },
+  ),
+  emitter(
+    "bolt",
+    { maxParticles: 1, space: "local" },
+    [
+      ["spawn.burst", { count: 1 }],
+      ["init.lifetime", { lifetime: 1000 }],
+      ["init.shape", { shape: "point", speed: 0 }],
+      ["init.velocity", { velocity: [0, 0, 1e-3] }],
+      ["init.size", { size: 0.35 }],
+      ["init.rotation", { angle: 0 }],
+      ["init.color", { color: { kind: "constant", color: "#ffd9a0", intensity: 6 } }],
+    ],
+    { type: "mesh", blend: "additive", mesh: "cylinder", orientation: "velocity" },
+  ),
+]);
+
+// ---------------------------------------------------------------------------
+
+/** Per-particle trails + sub-emitters: a shell rises and bursts into trailed stars. */
+export const firework = effect("firework", "Firework", [
+  {
+    ...emitter(
+      "shell",
+      { looping: false, duration: 0.1, maxParticles: 2 },
+      [
+        ["spawn.burst", { count: 1 }],
+        ["init.lifetime", { lifetime: range(1.1, 1.4) }],
+        ["init.shape", { shape: "cone", radius: 0, angle: 6, speed: range(15, 18) }],
+        ["init.size", { size: 0.12 }],
+        ["init.color", { color: { kind: "constant", color: "#ffd9a0", intensity: 3 } }],
+        ["update.gravity", {}],
+      ],
+      { type: "ribbon", mode: "particle", trail: { points: 24, minDistance: 0.15, lifetime: 0.6 }, taper: 1, fade: 1, blend: "additive", shape: "glow" },
+    ),
+    subEmitters: [{ trigger: "death", emitter: "stars", count: 90, inheritVelocity: 0.4 }],
+  },
+  emitter(
+    "stars",
+    { looping: false, duration: 0.1, eventDriven: true, maxParticles: 200 },
+    [
+      ["init.lifetime", { lifetime: range(1.2, 1.9) }],
+      ["init.shape", { shape: "sphere", radius: 0.1, thickness: 0, speed: range(7, 9) }],
+      ["init.size", { size: range(0.08, 0.14) }],
+      [
+        "init.color",
+        {
+          color: {
+            kind: "randomGradient",
+            gradient: { colors: [{ t: 0, color: "#ff4060" }, { t: 0.33, color: "#ffd040" }, { t: 0.66, color: "#40ff90" }, { t: 1, color: "#4080ff" }], alphas: [{ t: 0, a: 1 }], intensity: 4 },
+          },
+        },
+      ],
+      ["update.gravity", { scale: 0.35 }],
+      ["update.drag", { drag: 1.1 }],
+      ["render.colorOverLife", { gradient: { colors: [{ t: 0, color: "#ffffff" }], alphas: [{ t: 0, a: 1 }, { t: 0.7, a: 1 }, { t: 1, a: 0 }] } }],
+    ],
+    { type: "ribbon", mode: "particle", trail: { points: 16, minDistance: 0.08, lifetime: 0.45 }, taper: 1, fade: 1, blend: "additive", shape: "glow" },
+  ),
+]);
+
+export const ALL_EFFECTS = [campfire, thruster, explosion, tracer, firework];

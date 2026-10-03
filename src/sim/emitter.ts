@@ -3,6 +3,7 @@ import { ParticleBuffer } from "./buffer";
 import type { CompiledModule, EmitterTemplate } from "./compile";
 import { EffectTransform, SimContext } from "./context";
 import { rotate } from "./math";
+import { TrailStore } from "./trails";
 
 /** Floats per queued sub-emitter event: position, velocity, colour, count. */
 const EVENT_STRIDE = 11;
@@ -19,6 +20,8 @@ export class EmitterSim {
   readonly buf: ParticleBuffer;
   readonly ctx: SimContext;
   readonly state: Float64Array;
+  /** Per-particle trail history (ribbon mode "particle"), else null. */
+  readonly trails: TrailStore | null;
   /** Seconds since the effect started playing. */
   time = 0;
 
@@ -39,6 +42,20 @@ export class EmitterSim {
     this.buf = new ParticleBuffer(template.capacity, template.extraChannels);
     this.state = new Float64Array(template.stateSize);
     this.ctx = new SimContext(this.#rng, params, transform, template.space);
+    const t = template.trail;
+    this.trails = t ? new TrailStore(template.capacity, t.points, t.minDistance, t.lifetime) : null;
+    this.#trailSlot = t ? this.buf.channel("trailSlot") : null;
+  }
+
+  readonly #trailSlot: Float32Array | null;
+
+  /** New particles [start, end) are in simulation space: give each a trail slot starting at its birth position. */
+  #startTrails(start: number, end: number): void {
+    const trails = this.trails;
+    if (!trails) return;
+    const b = this.buf;
+    const slots = this.#trailSlot!;
+    for (let i = start; i < end; i++) slots[i] = trails.start(b.px[i], b.py[i], b.pz[i], this.time);
   }
 
   reset(seed: number): void {
@@ -47,6 +64,7 @@ export class EmitterSim {
     this.state.fill(0);
     this.#eventCount = 0;
     this.#rng.seed(seed);
+    this.trails?.reset();
   }
 
   get pendingEvents(): number {
@@ -121,12 +139,32 @@ export class EmitterSim {
       age[i] += dt;
     }
 
-    // deaths (backwards: the particle swapped into slot i was already visited)
+    const trails = this.trails;
+    const slots = this.#trailSlot;
+    if (trails) for (let i = 0; i < count; i++) trails.record(slots![i], px[i], py[i], pz[i], this.time);
+
     const life = buf.life;
     const death = tpl.death;
+    if (tpl.ordered) {
+      // order-preserving compaction: survivors slide down, spawn order is kept
+      let w = 0;
+      for (let i = 0; i < count; i++) {
+        if (age[i] >= life[i]) {
+          if (death.length) this.#emitEvents(death, i);
+          if (trails) trails.release(slots![i]);
+          continue;
+        }
+        if (w !== i) buf.copy(i, w);
+        w++;
+      }
+      buf.count = w;
+      return;
+    }
+    // deaths (backwards: the particle swapped into slot i was already visited)
     for (let i = count - 1; i >= 0; i--) {
       if (age[i] < life[i]) continue;
       if (death.length) this.#emitEvents(death, i);
+      if (trails) trails.release(slots![i]);
       buf.remove(i);
     }
   }
@@ -186,6 +224,7 @@ export class EmitterSim {
         b.size[i] *= s;
       }
     }
+    this.#startTrails(start, end);
     b.count = end;
     runModules(tpl.initSim, this.ctx, b, start, end);
     if (tpl.birth.length) for (let i = start; i < end; i++) this.#emitEvents(tpl.birth, i);
@@ -251,6 +290,7 @@ export class EmitterSim {
         b.a[i] *= e[o + 9];
       }
     }
+    this.#startTrails(start, end);
     b.count = end;
     runModules(tpl.initSim, this.ctx, b, start, end);
   }

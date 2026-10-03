@@ -78,9 +78,45 @@ EffectDoc
     ├── init[]            modules → run once on each new particle
     ├── update[]          modules → run on every particle every frame
     ├── render[]          modules → baked to GPU lookup tables (size/colour over life)
-    ├── renderer          sprite: blend, shape|texture, flipbook, facing (camera|velocity|horizontal), stretch
+    ├── renderer          sprite | mesh | ribbon (see Renderers)
     └── subEmitters[]     on birth/death → spawn N in another emitter (inherit velocity/colour)
 ```
+
+### Renderers
+
+| Type | Instance | Options | Use for |
+| --- | --- | --- | --- |
+| `sprite` | one quad per particle | `shape` (procedural or `texture`), `flipbook`, `facing`: camera / velocity (stretched) / horizontal | fire, smoke, sparks, glows, shockwave rings |
+| `mesh` | one mesh per particle: a built-in primitive or a geometry the host registers by name (`world.registerGeometry("rock", geo)`) | `orientation`: random (tumble by rotation/spin around a per-particle axis) / velocity (+Y along travel) / fixed; `lit` (MeshStandardNodeMaterial); `texture` | debris, shards, bolts, coins |
+| `ribbon` | one quad per segment. `mode: "emitter"`: one strip per effect instance through its particles, oldest → newest. `mode: "particle"`: a trail behind every particle | `facing`: camera / horizontal; `uvMode`: stretch (0 at the head → 1 at the tail) / tile (every `uvTile` units); `taper`, `fade` toward the tail; `trail: { points, minDistance, lifetime }` for particle mode; `shape` is the cross-section falloff or a texture | tracers, engine trails, beams (emitter mode); sparks with streaks, fireworks, magic missiles (particle mode) |
+
+All three share the over-life LUT (size and colour over life), the blend modes (`additive`, `alpha`, `premultiplied`,
+`opaque`), the material hook, and batching: one draw call per emitter however many instances are alive.
+
+How ribbons work:
+
+- A ribbon emitter switches the simulator from swap-remove to **order-preserving compaction** (`EmitterTemplate.ordered`),
+  so the buffer stays in spawn order. That costs one copy per survivor on frames where something dies, and only for
+  ribbon emitters.
+- The CPU writes **both endpoints of every segment** (position, tangent from neighbouring points, texture u, width,
+  colour). Adjacent segments therefore compute identical edge vertices and the strip has no seams.
+- Segments are only written *within* a strip, so several instances' ribbons share one buffer and one draw call without
+  joining up. (Reading neighbouring particles through attribute offsets isn't possible: WebGPU requires attribute
+  offset + size ≤ the buffer's stride.)
+- Particle size is the ribbon width. Size/colour over life, `taper` and `fade` shape the tail.
+
+Per-particle trails (`mode: "particle"`, Unity's Trails module):
+
+- History lives in a `TrailStore` (`src/sim/trails.ts`), not in particle channels. Each trailed particle owns a slot:
+  a ring of `points` timestamped positions. The particle stores only its slot id (`trailSlot` channel), so
+  swap-remove still copies one float per channel. Slots come from a free list and are returned when the particle dies.
+- A point is recorded once the particle has moved `minDistance` (Unity's minimum vertex distance). Points older than
+  `lifetime` seconds aren't drawn, so trail length is in time, independent of frame rate. Each trail is drawn from its
+  oldest point to the particle's **live** position, so it never detaches.
+- A trail disappears with its particle. Fade the particle out with colour over life to end it smoothly.
+- Cost: recording is negligible. Packing is memory-bound at about 25 ns per segment (128 bytes each). 18,000 trailed
+  particles with ~15 segments each = 6.9 ms, so a few hundred to a couple of thousand trails is comfortable
+  (`scripts/bench-trails.ts`).
 
 Files are plain JSON (`*.fx.json`, see `examples/`). `normalizeEffect` parses untrusted input. `validateEffect`
 returns issues and never throws. The compiler skips invalid modules and reports them, so a half-edited effect still
@@ -158,7 +194,8 @@ else is ~15–20 ns per particle.
    supports gameplay callbacks, sub-emitters and determinism cheaply.
 2. **Back-to-front sorting** for alpha-blended emitters. Smoke currently relies on soft shapes and premultiplied alpha.
 3. **Soft particles** (depth fade against the scene depth texture). Needs a depth pass from the host pipeline.
-4. **Mesh and ribbon renderers.** Ribbons matter for Redshift's weapon tracers and engine trails.
+4. **Multiple renderers per emitter** (Niagara allows several): a spark as a sprite head *and* a trail currently takes
+   two emitters, or a trail with a bright head via `fade`.
 5. **Budgets and LOD:** a world particle budget, distance culling of instances, quality tiers (Niagara scalability).
 6. A **worker simulation** if main-thread time gets tight (SoA buffers are transferable).
 
@@ -318,9 +355,9 @@ on it. That's the only change Phase 3 asks of tsl-graph.
 
 | Phase | Milestone | Scope |
 | --- | --- | --- |
-| **1** ✅ | Runtime library | Core, 20 modules, CPU sim, batched TSL sprites, Redshift adapter, examples, tests, playground |
+| **1** ✅ | Runtime library | Core, 20 modules, CPU sim, batched TSL sprite/mesh/ribbon renderers, Redshift adapter, examples, tests, playground |
 | 1.1 | Redshift adoption | Wire `ParticleWorld` into `Game.ts`; thrusters on ships; replace `EffectSpawner`; delete the old particle system |
-| 1.2 | Runtime gaps | Sorting, ribbon/trail renderer, soft particles, world budget/LOD |
+| 1.2 | Runtime gaps | ✅ mesh + ribbon renderers, per-particle trails; next: sorting, soft particles, world budget/LOD |
 | **2** | Effect editor | Stack UI, value widgets, timeline, viewport, store and undo, MCP + AI chat, `particle` graph kind in tsl-graph |
 | 2.1 | GPU backend | TSL compute implementations for built-in modules, `sim: "gpu"` per emitter |
 | **3** | FX studio | Monorepo, `studio-kit` extraction, asset model, prefabs, unified MCP, export bundle |

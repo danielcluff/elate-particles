@@ -6,20 +6,35 @@
 import * as THREE from "three/webgpu";
 import type { EmitterSim } from "../sim/emitter";
 import type { EmitterTemplate } from "../sim/compile";
-import { SPRITE_ATTRIBUTES, SPRITE_STRIDE } from "./sprite-material";
+import type { RibbonRendererDoc } from "../core/types";
+import { PARTICLE_ATTRIBUTES, PARTICLE_STRIDE } from "./materials/common";
+import { RIBBON_ATTRIBUTES, RIBBON_STRIDE } from "./materials/ribbon";
 
-export class SpriteBatch {
+/** Shared instanced-buffer management; subclasses decide what an instance is. */
+export abstract class InstanceBatch {
   readonly mesh: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.Material>;
   readonly template: EmitterTemplate;
-  #data: Float32Array;
+  protected data: Float32Array;
+  /** Instances written this frame. */
+  protected count = 0;
   #buffer: THREE.InstancedInterleavedBuffer;
   #capacity: number;
-  #count = 0;
+  readonly #stride: number;
+  readonly #attributes: readonly string[];
+  readonly #base: () => THREE.BufferGeometry;
 
-  constructor(template: EmitterTemplate, material: THREE.Material, capacity = template.capacity) {
+  /**
+   * @param base returns a fresh copy of the per-instance geometry (each batch geometry owns its attributes,
+   *   because disposing a geometry frees its attributes' GPU buffers)
+   * @param attributes vec4 attribute names, laid out consecutively in each instance's `stride` floats
+   */
+  constructor(template: EmitterTemplate, material: THREE.Material, base: () => THREE.BufferGeometry, stride: number, attributes: readonly string[], capacity: number) {
     this.template = template;
+    this.#stride = stride;
+    this.#attributes = attributes;
+    this.#base = base;
     this.#capacity = Math.max(16, capacity);
-    this.#data = new Float32Array(this.#capacity * SPRITE_STRIDE);
+    this.data = new Float32Array(this.#capacity * stride);
     this.#buffer = this.#makeBuffer();
     this.mesh = new THREE.Mesh(this.#makeGeometry(), material);
     this.mesh.name = `particles:${template.doc.name}`;
@@ -29,43 +44,42 @@ export class SpriteBatch {
     this.mesh.visible = false;
   }
 
-  get count(): number {
-    return this.#count;
+  /** Instances drawn this frame (particles for sprites/meshes, segments for ribbons). */
+  get instances(): number {
+    return this.count;
   }
 
   get capacity(): number {
     return this.#capacity;
   }
 
+  /** Particles represented this frame (for stats). */
+  abstract get particles(): number;
+
+  /** Appends an emitter's live particles. `matrix` is set for local-space emitters. */
+  abstract pack(sim: EmitterSim, matrix: Float32Array | null): void;
+
   #makeBuffer(): THREE.InstancedInterleavedBuffer {
-    const b = new THREE.InstancedInterleavedBuffer(this.#data, SPRITE_STRIDE, 1);
+    const b = new THREE.InstancedInterleavedBuffer(this.data, this.#stride, 1);
     b.setUsage(THREE.DynamicDrawUsage);
     return b;
   }
 
   #makeGeometry(): THREE.InstancedBufferGeometry {
-    // own copy of the quad: disposing a geometry frees its attributes' GPU buffers
-    const quad = new THREE.PlaneGeometry(1, 1);
-    const g = new THREE.InstancedBufferGeometry();
-    g.index = quad.index;
-    g.setAttribute("position", quad.getAttribute("position"));
-    g.setAttribute("uv", quad.getAttribute("uv"));
-    g.setAttribute(SPRITE_ATTRIBUTES.a, new THREE.InterleavedBufferAttribute(this.#buffer, 4, 0));
-    g.setAttribute(SPRITE_ATTRIBUTES.b, new THREE.InterleavedBufferAttribute(this.#buffer, 4, 4));
-    g.setAttribute(SPRITE_ATTRIBUTES.c, new THREE.InterleavedBufferAttribute(this.#buffer, 4, 8));
-    g.setAttribute(SPRITE_ATTRIBUTES.d, new THREE.InterleavedBufferAttribute(this.#buffer, 4, 12));
+    const g = new THREE.InstancedBufferGeometry().copy(this.#base() as THREE.InstancedBufferGeometry);
+    this.#attributes.forEach((name, i) => g.setAttribute(name, new THREE.InterleavedBufferAttribute(this.#buffer, 4, i * 4)));
     g.instanceCount = 0;
     return g;
   }
 
-  /** Grows the GPU buffer (doubling) so `needed` particles fit. Rare: allocates. */
-  #ensure(needed: number): void {
+  /** Grows the GPU buffer (doubling) so `needed` instances fit. Rare: allocates. */
+  protected ensure(needed: number): void {
     if (needed <= this.#capacity) return;
     let cap = this.#capacity;
     while (cap < needed) cap *= 2;
-    const data = new Float32Array(cap * SPRITE_STRIDE);
-    data.set(this.#data.subarray(0, this.#count * SPRITE_STRIDE));
-    this.#data = data;
+    const data = new Float32Array(cap * this.#stride);
+    data.set(this.data.subarray(0, this.count * this.#stride));
+    this.data = data;
     this.#capacity = cap;
     this.#buffer = this.#makeBuffer();
     const old = this.mesh.geometry;
@@ -74,20 +88,47 @@ export class SpriteBatch {
   }
 
   begin(): void {
-    this.#count = 0;
+    this.count = 0;
   }
 
-  /** Appends an emitter's live particles. `matrix` is set for local-space emitters. */
+  end(): void {
+    const n = this.count;
+    this.mesh.geometry.instanceCount = n;
+    this.mesh.visible = n > 0;
+    if (n === 0) return;
+    this.#buffer.clearUpdateRanges();
+    this.#buffer.addUpdateRange(0, n * this.#stride);
+    this.#buffer.needsUpdate = true;
+  }
+
+  dispose(): void {
+    this.mesh.removeFromParent();
+    this.mesh.geometry.dispose();
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+/** One instance per particle: sprites (quad) and meshes (any geometry). */
+export class ParticleBatch extends InstanceBatch {
+  constructor(template: EmitterTemplate, material: THREE.Material, base: () => THREE.BufferGeometry = () => new THREE.PlaneGeometry(1, 1), capacity = template.capacity) {
+    super(template, material, base, PARTICLE_STRIDE, Object.values(PARTICLE_ATTRIBUTES), capacity);
+  }
+
+  get particles(): number {
+    return this.count;
+  }
+
   pack(sim: EmitterSim, matrix: Float32Array | null): void {
     const b = sim.buf;
     const n = b.count;
     if (n === 0) return;
-    this.#ensure(this.#count + n);
-    const out = this.#data;
+    this.ensure(this.count + n);
+    const out = this.data;
     const { px, py, pz, vx, vy, vz, age, life, seed, size, rot, r, g, b: bl, a } = b;
-    let o = this.#count * SPRITE_STRIDE;
+    let o = this.count * PARTICLE_STRIDE;
     if (!matrix) {
-      for (let i = 0; i < n; i++, o += SPRITE_STRIDE) {
+      for (let i = 0; i < n; i++, o += PARTICLE_STRIDE) {
         out[o] = px[i];
         out[o + 1] = py[i];
         out[o + 2] = pz[i];
@@ -108,7 +149,7 @@ export class SpriteBatch {
       const m = matrix;
       // uniform scale = length of the first basis column
       const sc = Math.hypot(m[0], m[1], m[2]);
-      for (let i = 0; i < n; i++, o += SPRITE_STRIDE) {
+      for (let i = 0; i < n; i++, o += PARTICLE_STRIDE) {
         const x = px[i], y = py[i], z = pz[i];
         out[o] = m[0] * x + m[4] * y + m[8] * z + m[12];
         out[o + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
@@ -128,22 +169,221 @@ export class SpriteBatch {
         out[o + 15] = a[i];
       }
     }
-    this.#count += n;
+    this.count += n;
+  }
+}
+
+/** @deprecated renamed to ParticleBatch */
+export const SpriteBatch = ParticleBatch;
+
+// ---------------------------------------------------------------------------
+
+/**
+ * One instance per ribbon segment.
+ *  - mode "emitter": an emitter instance's particles (kept in spawn order by
+ *    the simulator) form one strip, oldest → newest.
+ *  - mode "particle": every particle draws its own strip, from the oldest
+ *    point of its trail history to its live position.
+ * Segments are only written within a strip, so strips never join up.
+ */
+export class RibbonBatch extends InstanceBatch {
+  #particles = 0;
+  // per-strip scratch: points in simulation space, the particle each point
+  // takes its attributes from, then world positions / tangents / u
+  #pts = new Float32Array(0);
+  #pi = new Int32Array(0);
+  #wp = new Float32Array(0);
+  #tan = new Float32Array(0);
+  #u = new Float32Array(0);
+  #un = new Float32Array(0);
+
+  constructor(template: EmitterTemplate, material: THREE.Material, capacity = template.capacity) {
+    super(template, material, () => new THREE.PlaneGeometry(1, 1), RIBBON_STRIDE, RIBBON_ATTRIBUTES, capacity);
   }
 
-  end(): void {
-    const n = this.#count;
-    const geo = this.mesh.geometry;
-    geo.instanceCount = n;
-    this.mesh.visible = n > 0;
-    if (n === 0) return;
-    this.#buffer.clearUpdateRanges();
-    this.#buffer.addUpdateRange(0, n * SPRITE_STRIDE);
-    this.#buffer.needsUpdate = true;
+  get particles(): number {
+    return this.#particles;
   }
 
-  dispose(): void {
-    this.mesh.removeFromParent();
-    this.mesh.geometry.dispose();
+  override begin(): void {
+    super.begin();
+    this.#particles = 0;
+  }
+
+  #scratch(n: number): void {
+    if (this.#u.length >= n) return;
+    const cap = Math.max(n, this.#u.length * 2, 64);
+    this.#pts = new Float32Array(cap * 3);
+    this.#pi = new Int32Array(cap);
+    this.#wp = new Float32Array(cap * 3);
+    this.#tan = new Float32Array(cap * 3);
+    this.#u = new Float32Array(cap);
+    this.#un = new Float32Array(cap);
+  }
+
+  pack(sim: EmitterSim, matrix: Float32Array | null): void {
+    const b = sim.buf;
+    const n = b.count;
+    this.#particles += n;
+    const trails = sim.trails;
+    if (!trails) {
+      if (n < 2) return;
+      this.#scratch(n);
+      const pts = this.#pts, pi = this.#pi;
+      for (let i = 0; i < n; i++) {
+        pts[i * 3] = b.px[i];
+        pts[i * 3 + 1] = b.py[i];
+        pts[i * 3 + 2] = b.pz[i];
+        pi[i] = i;
+      }
+      this.#writeStrip(sim, n, matrix);
+      return;
+    }
+
+    // one strip per particle: history (oldest first), then the live position
+    this.#scratch(trails.points + 1);
+    const slots = b.channel("trailSlot");
+    const pts = this.#pts;
+    for (let i = 0; i < n; i++) {
+      let m = trails.read(slots[i], sim.time, pts, 0);
+      // skip the newest history point if it sits on the particle (recorded this step)
+      if (m > 0) {
+        const o = (m - 1) * 3;
+        const dx = pts[o] - b.px[i], dy = pts[o + 1] - b.py[i], dz = pts[o + 2] - b.pz[i];
+        if (dx * dx + dy * dy + dz * dz < 1e-12) m--;
+      }
+      pts[m * 3] = b.px[i];
+      pts[m * 3 + 1] = b.py[i];
+      pts[m * 3 + 2] = b.pz[i];
+      m++;
+      if (m < 2) continue;
+      this.#writeStrip(sim, m, matrix, i);
+    }
+  }
+
+  /**
+   * Writes a strip through the first `n` scratch points (simulation space).
+   * Attributes come from particle `particle`, or per point from #pi when -1.
+   */
+  #writeStrip(sim: EmitterSim, n: number, matrix: Float32Array | null, particle = -1): void {
+    this.ensure(this.count + n - 1);
+    const r = this.template.renderer as RibbonRendererDoc;
+    const pts = this.#pts, pi = this.#pi, wp = this.#wp, tan = this.#tan, uu = this.#u, un = this.#un;
+
+    // world positions
+    let sc = 1;
+    if (matrix) {
+      const m = matrix;
+      sc = Math.hypot(m[0], m[1], m[2]);
+      for (let i = 0; i < n; i++) {
+        const x = pts[i * 3], y = pts[i * 3 + 1], z = pts[i * 3 + 2];
+        wp[i * 3] = m[0] * x + m[4] * y + m[8] * z + m[12];
+        wp[i * 3 + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
+        wp[i * 3 + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+      }
+    } else {
+      for (let i = 0; i < n * 3; i++) wp[i] = pts[i];
+    }
+
+    // tangents from neighbours (central differences, one-sided at the ends);
+    // a degenerate tangent (coincident points) reuses the previous one
+    let lx = 0, ly = 1, lz = 0;
+    for (let i = 0; i < n; i++) {
+      const a = i > 0 ? i - 1 : i;
+      const c = i < n - 1 ? i + 1 : i;
+      let tx = wp[c * 3] - wp[a * 3], ty = wp[c * 3 + 1] - wp[a * 3 + 1], tz = wp[c * 3 + 2] - wp[a * 3 + 2];
+      // sqrt, not Math.hypot: hypot is several times slower in V8 and this runs per point
+      const l = Math.sqrt(tx * tx + ty * ty + tz * tz);
+      if (l > 1e-6) {
+        tx /= l;
+        ty /= l;
+        tz /= l;
+        lx = tx;
+        ly = ty;
+        lz = tz;
+      } else {
+        tx = lx;
+        ty = ly;
+        tz = lz;
+      }
+      tan[i * 3] = tx;
+      tan[i * 3 + 1] = ty;
+      tan[i * 3 + 2] = tz;
+    }
+
+    // normalised strip coordinate (0 head → 1 tail) drives taper/fade;
+    // texture u is the same for "stretch", world distance / uvTile for "tile"
+    for (let i = 0; i < n; i++) un[i] = (n - 1 - i) / (n - 1);
+    if (r.uvMode === "tile") {
+      const tile = r.uvTile && r.uvTile > 0 ? r.uvTile : 1;
+      let d = 0;
+      uu[n - 1] = 0;
+      for (let i = n - 2; i >= 0; i--) {
+        const dx = wp[i * 3 + 3] - wp[i * 3], dy = wp[i * 3 + 4] - wp[i * 3 + 1], dz = wp[i * 3 + 5] - wp[i * 3 + 2];
+        d += Math.sqrt(dx * dx + dy * dy + dz * dz);
+        uu[i] = d / tile;
+      }
+    } else {
+      for (let i = 0; i < n; i++) uu[i] = un[i];
+    }
+
+    const out = this.data;
+    const { age, life, seed, size, r: cr, g, b: cb, a } = sim.buf;
+    let o = this.count * RIBBON_STRIDE;
+    if (particle >= 0) {
+      // trail of one particle: everything but position/tangent/u is constant along the strip
+      const i = particle;
+      const ag = age[i] / life[i], w = size[i] * sc, sd = seed[i], lf = life[i];
+      const r0 = cr[i], g0 = g[i], b0 = cb[i], a0 = a[i];
+      for (let s = 0; s < n - 1; s++, o += RIBBON_STRIDE) {
+        for (let e = 0; e < 2; e++) {
+          const k = s + e;
+          const q = o + e * 16;
+          const k3 = k * 3;
+          out[q] = wp[k3];
+          out[q + 1] = wp[k3 + 1];
+          out[q + 2] = wp[k3 + 2];
+          out[q + 3] = ag;
+          out[q + 4] = tan[k3];
+          out[q + 5] = tan[k3 + 1];
+          out[q + 6] = tan[k3 + 2];
+          out[q + 7] = uu[k];
+          out[q + 8] = w;
+          out[q + 9] = sd;
+          out[q + 10] = lf;
+          out[q + 11] = un[k];
+          out[q + 12] = r0;
+          out[q + 13] = g0;
+          out[q + 14] = b0;
+          out[q + 15] = a0;
+        }
+      }
+      this.count += n - 1;
+      return;
+    }
+    for (let s = 0; s < n - 1; s++, o += RIBBON_STRIDE) {
+      for (let e = 0; e < 2; e++) {
+        const k = s + e;
+        const i = pi[k];
+        const q = o + e * 16;
+        out[q] = wp[k * 3];
+        out[q + 1] = wp[k * 3 + 1];
+        out[q + 2] = wp[k * 3 + 2];
+        out[q + 3] = age[i] / life[i];
+        out[q + 4] = tan[k * 3];
+        out[q + 5] = tan[k * 3 + 1];
+        out[q + 6] = tan[k * 3 + 2];
+        out[q + 7] = uu[k];
+        out[q + 8] = size[i] * sc;
+        out[q + 9] = seed[i];
+        out[q + 10] = life[i];
+        out[q + 11] = un[k];
+        out[q + 12] = cr[i];
+        out[q + 13] = g[i];
+        out[q + 14] = cb[i];
+        out[q + 15] = a[i];
+      }
+    }
+    this.count += n - 1;
   }
 }

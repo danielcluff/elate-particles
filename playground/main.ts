@@ -2,7 +2,7 @@ import * as THREE from "three/webgpu";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { ParticleWorld, type ParticleEffect } from "../src/three";
 import { validateEffect } from "../src/index";
-import { ALL_EFFECTS, campfire, explosion, thruster } from "./effects";
+import { ALL_EFFECTS, campfire, explosion, firework, thruster, tracer } from "./effects";
 
 const renderer = new THREE.WebGPURenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -20,6 +20,11 @@ controls.enableDamping = true;
 
 const grid = new THREE.GridHelper(60, 60, 0x223044, 0x141c28);
 scene.add(grid);
+// for lit mesh particles
+scene.add(new THREE.HemisphereLight(0xb0c4ff, 0x302010, 1.2));
+const sun = new THREE.DirectionalLight(0xffeedd, 2.5);
+sun.position.set(5, 10, 4);
+scene.add(sun);
 
 const world = new ParticleWorld();
 scene.add(world.object);
@@ -84,6 +89,55 @@ const scenes: Record<string, Scene> = {
     },
     exit() {},
   },
+  tracers: {
+    enter() {
+      timer = 0;
+    },
+    update(dt) {
+      timer -= dt;
+      if (timer <= 0) {
+        timer = 0.08;
+        // a volley crossing the scene at 60 u/s
+        const from = new THREE.Vector3(-25, 1 + Math.random() * 3, (Math.random() - 0.5) * 8);
+        const dir = new THREE.Vector3(1, Math.random() * 0.1, (Math.random() - 0.5) * 0.2).normalize();
+        const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+        bolts.push({ h: world.spawn(tracer, { position: from, rotation: q, autoRelease: false }), pos: from, dir, t: 0 });
+      }
+      for (let i = bolts.length - 1; i >= 0; i--) {
+        const b = bolts[i];
+        b.t += dt;
+        b.pos.addScaledVector(b.dir, 60 * dt);
+        b.h.setTransform(b.pos).setVelocity(b.dir.clone().multiplyScalar(60));
+        if (b.t > 0.9) {
+          world.spawn(explosion, { position: b.pos, scale: 0.3 });
+          b.h.release();
+          bolts.splice(i, 1);
+        }
+      }
+    },
+    exit() {
+      for (const b of bolts) b.h.release();
+      bolts.length = 0;
+    },
+  },
+  fireworks: {
+    enter() {
+      timer = 0;
+      camera.position.set(0, 6, 28);
+      controls.target.set(0, 9, 0);
+    },
+    update(dt) {
+      timer -= dt;
+      if (timer <= 0) {
+        timer = 0.7 + Math.random() * 0.5;
+        world.spawn(firework, { position: new THREE.Vector3((Math.random() - 0.5) * 14, 0, (Math.random() - 0.5) * 6) });
+      }
+    },
+    exit() {
+      camera.position.set(5, 3.5, 7);
+      controls.target.set(0, 1.5, 0);
+    },
+  },
   stress: {
     enter() {
       timer = 0;
@@ -99,6 +153,7 @@ const scenes: Record<string, Scene> = {
   },
 };
 let timer = 0;
+const bolts: { h: ParticleEffect; pos: THREE.Vector3; dir: THREE.Vector3; t: number }[] = [];
 
 const ship = new THREE.Mesh(new THREE.ConeGeometry(0.3, 1.2, 8).rotateX(Math.PI / 2), new THREE.MeshBasicNodeMaterial({ color: 0x8899aa, wireframe: true }));
 ship.visible = false;

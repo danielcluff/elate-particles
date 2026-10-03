@@ -104,6 +104,18 @@ draw call no matter how many instances are alive, so 50 simultaneous impacts cos
 If an effect needs to follow something for its whole life (a projectile's tracer), keep the handle and call
 `handle.setTransform(...)` each frame, or use the component.
 
+## Tracers and trails
+
+`examples/tracer.fx.json` is a ribbon tracer plus a velocity-aligned bolt mesh. Spawn one per projectile with
+`autoRelease: false`, move it with `setTransform` every frame, and `release()` it on impact. A projectile moving at
+200 u/s still gets a continuous ribbon, because spawns are spread along the path travelled each frame. The `thruster`
+example's trail is also a ribbon. For debris from a GLB, register its geometry once and refer to it by name from a mesh
+renderer:
+
+```ts
+particles.registerGeometry("hull-shard", gltf.scene.getObjectByName("Shard").geometry);
+```
+
 ## Notes
 
 - **Units.** Effects are authored in world units. Use `scale` on spawn (or the component) to resize an effect per use,

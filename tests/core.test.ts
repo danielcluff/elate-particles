@@ -75,7 +75,7 @@ describe("commands", () => {
     expect(e.name).toBe("Sparks");
     expect(e.spawn[0].params.count).toBe(40);
     expect(e.update[0].params.scale).toBe(0.5);
-    expect(e.renderer.facing).toBe("velocity");
+    expect(e.renderer).toMatchObject({ type: "sprite", facing: "velocity" });
     expect(validateEffect(doc)).toEqual([]);
   });
 

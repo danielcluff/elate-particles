@@ -177,14 +177,14 @@
       "duration": 1,
       "looping": true,
       "startDelay": 0,
-      "maxParticles": 600,
+      "maxParticles": 200,
       "space": "world",
       "spawn": [
         {
           "id": "trail.spawn.distance",
           "type": "spawn.distance",
           "params": {
-            "perUnit": 4
+            "perUnit": 2
           }
         }
       ],
@@ -193,19 +193,15 @@
           "id": "trail.init.lifetime",
           "type": "init.lifetime",
           "params": {
-            "lifetime": {
-              "kind": "range",
-              "min": 1.2,
-              "max": 1.8
-            }
+            "lifetime": 1.6
           }
         },
         {
           "id": "trail.init.shape",
           "type": "init.shape",
           "params": {
-            "shape": "sphere",
-            "radius": 0.1,
+            "shape": "point",
+            "radius": 0.5,
             "thickness": 1,
             "angle": 25,
             "arc": 360,
@@ -225,7 +221,7 @@
               0,
               0
             ],
-            "speed": 0.2,
+            "speed": 0,
             "randomDirection": 0
           }
         },
@@ -233,7 +229,7 @@
           "id": "trail.init.size",
           "type": "init.size",
           "params": {
-            "size": 0.25
+            "size": 0.35
           }
         },
         {
@@ -243,7 +239,7 @@
             "color": {
               "kind": "constant",
               "color": "#88aaff",
-              "alpha": 0.35
+              "intensity": 1.5
             }
           }
         }
@@ -262,7 +258,7 @@
                 },
                 {
                   "t": 1,
-                  "v": 2.5
+                  "v": 2
                 }
               ],
               "interp": "smooth"
@@ -278,12 +274,16 @@
                 {
                   "t": 0,
                   "color": "#ffffff"
+                },
+                {
+                  "t": 1,
+                  "color": "#2244ff"
                 }
               ],
               "alphas": [
                 {
                   "t": 0,
-                  "a": 1
+                  "a": 0.8
                 },
                 {
                   "t": 1,
@@ -295,10 +295,11 @@
         }
       ],
       "renderer": {
-        "type": "sprite",
+        "type": "ribbon",
         "blend": "additive",
         "shape": "softCircle",
-        "facing": "camera"
+        "facing": "camera",
+        "uvMode": "stretch"
       }
     }
   ],

@@ -90,6 +90,12 @@ export class ParticleBuffer {
     for (let c = 0; c < ch.length; c++) ch[c][i] = ch[c][last];
   }
 
+  /** Copies particle `from` into slot `to` (all channels). */
+  copy(from: number, to: number): void {
+    const ch = this.#channels;
+    for (let c = 0; c < ch.length; c++) ch[c][to] = ch[c][from];
+  }
+
   clear(): void {
     this.count = 0;
   }

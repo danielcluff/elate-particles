@@ -1,9 +1,9 @@
 // Headless simulator benchmark: steady-state cost per particle for the demo effects.
 //   pnpm tsx scripts/bench.ts [explosion|campfire|thruster] [instances]
 import { EffectSim, compileEffect, type EffectDoc } from "../src/index";
-import { campfire, explosion, thruster } from "../playground/effects";
+import { campfire, explosion, thruster, tracer } from "../playground/effects";
 
-const effects: Record<string, EffectDoc> = { explosion, campfire, thruster };
+const effects: Record<string, EffectDoc> = { explosion, campfire, thruster, tracer };
 const name = process.argv[2] ?? "explosion";
 const count = Number(process.argv[3] ?? 1000);
 const only = process.argv[4]; // optional: disable every update module except this type ("none" = no update modules)

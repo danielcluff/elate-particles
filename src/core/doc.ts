@@ -9,8 +9,10 @@ import {
   type EffectDoc,
   type EmitterDoc,
   type Issue,
+  RENDERER_TYPES,
   type ModuleInstance,
-  type SpriteRendererDoc,
+  type RendererDoc,
+  type RendererType,
   type Stage,
 } from "./types";
 
@@ -19,8 +21,17 @@ export function uid(prefix = ""): string {
   return prefix ? `${prefix}_${r}` : r;
 }
 
-export function defaultRenderer(): SpriteRendererDoc {
-  return { type: "sprite", blend: "additive", shape: "softCircle", facing: "camera" };
+export const DEFAULT_TRAIL = { points: 16, minDistance: 0.1, lifetime: 0.5 } as const;
+
+export function defaultRenderer(type: RendererType = "sprite"): RendererDoc {
+  switch (type) {
+    case "mesh":
+      return { type: "mesh", blend: "opaque", mesh: "icosahedron", orientation: "random" };
+    case "ribbon":
+      return { type: "ribbon", blend: "additive", shape: "softCircle", facing: "camera", uvMode: "stretch" };
+    default:
+      return { type: "sprite", blend: "additive", shape: "softCircle", facing: "camera" };
+  }
 }
 
 /** A module instance with every param at its default (plus overrides). */
@@ -98,7 +109,9 @@ export function normalizeEffect(json: unknown): EffectDoc {
       init: normalizeModules(raw.init),
       update: normalizeModules(raw.update),
       render: normalizeModules(raw.render),
-      renderer: { ...defaultRenderer(), ...(isObj(raw.renderer) ? (raw.renderer as Partial<SpriteRendererDoc>) : {}) },
+      renderer: isObj(raw.renderer)
+        ? ({ ...defaultRenderer(raw.renderer.type as RendererType), ...raw.renderer } as RendererDoc)
+        : defaultRenderer(),
     };
   });
   return {
@@ -125,8 +138,17 @@ export function validateStructure(doc: EffectDoc): Issue[] {
     if (!(e.duration > 0)) issues.push({ level: "error", message: "duration must be > 0", emitterId: e.id });
     if (!(e.maxParticles >= 1)) issues.push({ level: "error", message: "maxParticles must be ≥ 1", emitterId: e.id });
     if (e.maxParticles > 100_000) issues.push({ level: "warning", message: "maxParticles above 100k is expensive on the CPU simulator", emitterId: e.id });
-    if (e.renderer?.type !== "sprite") issues.push({ level: "error", message: `Unknown renderer type "${String(e.renderer?.type)}"`, emitterId: e.id });
-    if (e.renderer?.shape === "texture" && !e.renderer.texture) issues.push({ level: "warning", message: "Texture shape without a texture", emitterId: e.id });
+    const r = e.renderer;
+    if (!RENDERER_TYPES.includes(r?.type)) issues.push({ level: "error", message: `Unknown renderer type "${String(r?.type)}"`, emitterId: e.id });
+    else if (r.type !== "mesh" && r.shape === "texture" && !r.texture) issues.push({ level: "warning", message: "Texture shape without a texture", emitterId: e.id });
+    else if (r.type === "mesh" && !r.mesh) issues.push({ level: "error", message: "Mesh renderer needs a mesh", emitterId: e.id });
+    if (r?.type === "ribbon" && r.mode !== "particle" && e.maxParticles > 2000)
+      issues.push({ level: "warning", message: "Ribbons rarely need more than a few hundred points", emitterId: e.id });
+    if (r?.type === "ribbon" && r.mode === "particle" && r.trail) {
+      if (!(r.trail.points >= 2 && r.trail.points <= 256)) issues.push({ level: "error", message: "trail.points must be between 2 and 256", emitterId: e.id });
+      if (!(r.trail.lifetime > 0)) issues.push({ level: "error", message: "trail.lifetime must be > 0", emitterId: e.id });
+      if (!(r.trail.minDistance >= 0)) issues.push({ level: "error", message: "trail.minDistance must be ≥ 0", emitterId: e.id });
+    }
     const seen = new Set<string>();
     for (const stage of STAGES) {
       for (const m of e[stage]) {

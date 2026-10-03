@@ -1,0 +1,249 @@
+{
+  "format": "tsl-particles",
+  "version": 1,
+  "id": "tracer",
+  "name": "Tracer",
+  "emitters": [
+    {
+      "id": "trail",
+      "name": "trail",
+      "duration": 1,
+      "looping": true,
+      "startDelay": 0,
+      "maxParticles": 64,
+      "space": "world",
+      "spawn": [
+        {
+          "id": "trail.spawn.distance",
+          "type": "spawn.distance",
+          "params": {
+            "perUnit": 1.5
+          }
+        }
+      ],
+      "init": [
+        {
+          "id": "trail.init.lifetime",
+          "type": "init.lifetime",
+          "params": {
+            "lifetime": 0.35
+          }
+        },
+        {
+          "id": "trail.init.shape",
+          "type": "init.shape",
+          "params": {
+            "shape": "point",
+            "radius": 0.5,
+            "thickness": 1,
+            "angle": 25,
+            "arc": 360,
+            "boxSize": [
+              1,
+              1,
+              1
+            ],
+            "length": 1,
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "speed": 0,
+            "randomDirection": 0
+          }
+        },
+        {
+          "id": "trail.init.size",
+          "type": "init.size",
+          "params": {
+            "size": 0.18
+          }
+        },
+        {
+          "id": "trail.init.color",
+          "type": "init.color",
+          "params": {
+            "color": {
+              "kind": "constant",
+              "color": "#ff9a40",
+              "intensity": 4
+            }
+          }
+        }
+      ],
+      "update": [],
+      "render": [
+        {
+          "id": "trail.render.sizeOverLife",
+          "type": "render.sizeOverLife",
+          "params": {
+            "curve": {
+              "keys": [
+                {
+                  "t": 0,
+                  "v": 1
+                },
+                {
+                  "t": 1,
+                  "v": 0.2
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "trail.render.colorOverLife",
+          "type": "render.colorOverLife",
+          "params": {
+            "gradient": {
+              "colors": [
+                {
+                  "t": 0,
+                  "color": "#ffffff"
+                },
+                {
+                  "t": 1,
+                  "color": "#ff3300"
+                }
+              ],
+              "alphas": [
+                {
+                  "t": 0,
+                  "a": 1
+                },
+                {
+                  "t": 1,
+                  "a": 0
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "renderer": {
+        "type": "ribbon",
+        "blend": "additive",
+        "shape": "glow",
+        "facing": "camera",
+        "uvMode": "stretch"
+      }
+    },
+    {
+      "id": "bolt",
+      "name": "bolt",
+      "duration": 1,
+      "looping": true,
+      "startDelay": 0,
+      "maxParticles": 1,
+      "space": "local",
+      "spawn": [
+        {
+          "id": "bolt.spawn.burst",
+          "type": "spawn.burst",
+          "params": {
+            "time": 0,
+            "count": 1,
+            "cycles": 1,
+            "interval": 0.1,
+            "probability": 1
+          }
+        }
+      ],
+      "init": [
+        {
+          "id": "bolt.init.lifetime",
+          "type": "init.lifetime",
+          "params": {
+            "lifetime": 1000
+          }
+        },
+        {
+          "id": "bolt.init.shape",
+          "type": "init.shape",
+          "params": {
+            "shape": "point",
+            "radius": 0.5,
+            "thickness": 1,
+            "angle": 25,
+            "arc": 360,
+            "boxSize": [
+              1,
+              1,
+              1
+            ],
+            "length": 1,
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "speed": 0,
+            "randomDirection": 0
+          }
+        },
+        {
+          "id": "bolt.init.velocity",
+          "type": "init.velocity",
+          "params": {
+            "velocity": [
+              0,
+              0,
+              0.001
+            ],
+            "spread": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "id": "bolt.init.size",
+          "type": "init.size",
+          "params": {
+            "size": 0.35
+          }
+        },
+        {
+          "id": "bolt.init.rotation",
+          "type": "init.rotation",
+          "params": {
+            "angle": 0,
+            "spin": 0
+          }
+        },
+        {
+          "id": "bolt.init.color",
+          "type": "init.color",
+          "params": {
+            "color": {
+              "kind": "constant",
+              "color": "#ffd9a0",
+              "intensity": 6
+            }
+          }
+        }
+      ],
+      "update": [],
+      "render": [],
+      "renderer": {
+        "type": "mesh",
+        "blend": "additive",
+        "mesh": "cylinder",
+        "orientation": "velocity"
+      }
+    }
+  ],
+  "parameters": []
+}

@@ -92,7 +92,8 @@ export interface ModuleInstance {
   params: Record<string, unknown>;
 }
 
-export type BlendMode = "additive" | "alpha" | "premultiplied";
+/** "opaque" writes depth and ignores alpha (solid debris meshes). */
+export type BlendMode = "additive" | "alpha" | "premultiplied" | "opaque";
 export type SpriteShape = "softCircle" | "circle" | "glow" | "spark" | "ring" | "square" | "texture";
 export type Facing = "camera" | "velocity" | "horizontal";
 
@@ -120,7 +121,74 @@ export interface SpriteRendererDoc {
   softness?: number;
 }
 
-export type RendererDoc = SpriteRendererDoc;
+/** Built-in mesh primitives; any other name refers to a geometry registered on the ParticleWorld. */
+export const BUILTIN_MESHES = ["box", "sphere", "icosahedron", "octahedron", "tetrahedron", "cone", "cylinder", "torus", "plane"] as const;
+
+/** Instanced mesh per particle (debris, shards, rocks). Uses the same per-particle data as sprites. */
+export interface MeshRendererDoc {
+  type: "mesh";
+  blend: BlendMode;
+  /** A BUILTIN_MESHES primitive or the name of a geometry registered with ParticleWorld.registerGeometry. */
+  mesh: string;
+  /**
+   * random: tumbles around a per-particle axis by the particle's rotation/spin;
+   * velocity: +Y points along the direction of travel (rotation spins around it);
+   * fixed: world-aligned, rotation spins around +Y.
+   */
+  orientation: "random" | "velocity" | "fixed";
+  /** Lit by scene lights (MeshStandardNodeMaterial) instead of unlit. */
+  lit?: boolean;
+  roughness?: number;
+  metalness?: number;
+  /** Colour map sampled with the geometry's UVs. */
+  texture?: string;
+  sortOrder?: number;
+}
+
+/** Per-particle trail history (ribbon mode "particle"). */
+export interface TrailSettings {
+  /** History points kept per particle (trail resolution × length). */
+  points: number;
+  /** A new point is recorded once the particle has moved this far (world units). */
+  minDistance: number;
+  /** Points older than this (seconds) are not drawn: the trail's length in time. */
+  lifetime: number;
+}
+
+/**
+ * Ribbons, in two modes:
+ *  - emitter (default): one strip through an emitter's particles in spawn
+ *    order (Niagara's ribbon renderer): tracers, engine trails, beams. Each
+ *    effect instance draws its own strip.
+ *  - particle: a trail behind every particle (Unity's Trails module): sparks
+ *    with streaks, fireworks, magic missiles.
+ * Particle size is the ribbon width.
+ */
+export interface RibbonRendererDoc {
+  type: "ribbon";
+  mode?: "emitter" | "particle";
+  /** mode "particle": history settings (defaults: 16 points, 0.1 units, 0.5 s). */
+  trail?: TrailSettings;
+  /** 0..1: width shrinks toward the tail (1 = to a point). */
+  taper?: number;
+  /** 0..1: alpha fades toward the tail (1 = fully transparent at the end). */
+  fade?: number;
+  blend: BlendMode;
+  /** Cross-section falloff (procedural) or "texture" (u along the ribbon, v across). */
+  shape: "softCircle" | "glow" | "square" | "texture";
+  texture?: string;
+  /** camera: always faces the viewer; horizontal: lies flat (ground scorch, wakes). */
+  facing: "camera" | "horizontal";
+  /** stretch: u runs 0 (newest) → 1 (oldest); tile: u repeats every `uvTile` world units. */
+  uvMode: "stretch" | "tile";
+  uvTile?: number;
+  sortOrder?: number;
+  softness?: number;
+}
+
+export type RendererDoc = SpriteRendererDoc | MeshRendererDoc | RibbonRendererDoc;
+export type RendererType = RendererDoc["type"];
+export const RENDERER_TYPES: RendererType[] = ["sprite", "mesh", "ribbon"];
 
 /** Spawn particles in another emitter when particles of this one are born or die (Unity sub-emitters). */
 export interface SubEmitterBinding {

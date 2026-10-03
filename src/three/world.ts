@@ -8,8 +8,13 @@ import { uniform } from "three/tsl";
 import type { EffectDoc } from "../core/types";
 import { compileEffect, type EffectTemplate } from "../sim/compile";
 import { EffectSim } from "../sim/effect";
-import { SpriteBatch } from "./batch";
-import { createLutTexture, createSpriteMaterial, type SpriteMaterialContext } from "./sprite-material";
+import type { EmitterTemplate } from "../sim/compile";
+import { InstanceBatch, ParticleBatch, RibbonBatch } from "./batch";
+import { createBuiltinMesh } from "./geometries";
+import { createLutTexture, type MaterialOptions, type ParticleMaterialContext } from "./materials/common";
+import { createMeshMaterial } from "./materials/mesh";
+import { createRibbonMaterial } from "./materials/ribbon";
+import { createSpriteMaterial } from "./materials/sprite";
 
 interface XYZ {
   x: number;
@@ -24,7 +29,9 @@ export interface ParticleWorldOptions {
   /** Resolves renderer texture references (URLs or host asset ids). Defaults to a cached TextureLoader. */
   loadTexture?: (url: string) => THREE.Texture;
   /** Customise sprite materials (e.g. plug in a tsl-graph shader). Called once per emitter material. */
-  materialHook?: (ctx: SpriteMaterialContext) => void;
+  materialHook?: (ctx: ParticleMaterialContext) => void;
+  /** Named geometries for mesh renderers (also see registerGeometry). Built-in primitives need no registration. */
+  geometries?: Record<string, THREE.BufferGeometry>;
   /** Larger frame deltas are clamped to this (seconds). Default 0.1. */
   maxDelta?: number;
 }
@@ -50,7 +57,7 @@ export interface ParticleWorldStats {
 
 interface Registered {
   template: EffectTemplate;
-  batches: SpriteBatch[];
+  batches: InstanceBatch[];
   materials: THREE.Material[];
   luts: THREE.Texture[];
   pool: EffectSim[];
@@ -160,12 +167,52 @@ export class ParticleWorld {
   readonly #active: ParticleEffect[] = [];
   readonly #opts: ParticleWorldOptions;
   readonly #textures = new Map<string, THREE.Texture>();
+  readonly #geometries = new Map<string, THREE.BufferGeometry>();
   #seed = 1;
 
   constructor(opts: ParticleWorldOptions = {}) {
     this.#opts = opts;
     this.object.name = "ParticleWorld";
     this.object.matrixAutoUpdate = false;
+    for (const [name, g] of Object.entries(opts.geometries ?? {})) this.#geometries.set(name, g);
+  }
+
+  /**
+   * Makes a geometry available to mesh renderers by name (e.g. debris from a
+   * GLB). Effects already using the name are rebuilt. The world keeps a
+   * reference but never disposes it: the caller owns the geometry.
+   */
+  registerGeometry(name: string, geometry: THREE.BufferGeometry): void {
+    this.#geometries.set(name, geometry);
+    for (const reg of [...this.#effects.values()])
+      if (reg.template.emitters.some((e) => e.renderer.type === "mesh" && e.renderer.mesh === name)) this.register(reg.template.doc);
+  }
+
+  #meshGeometry(e: EmitterTemplate): () => THREE.BufferGeometry {
+    const name = e.renderer.type === "mesh" ? e.renderer.mesh : "box";
+    const registered = this.#geometries.get(name);
+    if (registered) return () => registered.clone();
+    if (createBuiltinMesh(name)) return () => createBuiltinMesh(name)!;
+    console.warn(`tsl-particles: mesh "${name}" is not registered (emitter "${e.doc.name}"); drawing boxes until it is`);
+    return () => createBuiltinMesh("box")!;
+  }
+
+  #createBatch(e: EmitterTemplate, lut: THREE.DataTexture | null): { batch: InstanceBatch; material: THREE.Material } {
+    const opts: MaterialOptions = { time: this.time, loadTexture: this.#loadTexture, hook: this.#opts.materialHook };
+    switch (e.renderer.type) {
+      case "mesh": {
+        const material = createMeshMaterial(e, lut, opts);
+        return { material, batch: new ParticleBatch(e, material, this.#meshGeometry(e)) };
+      }
+      case "ribbon": {
+        const material = createRibbonMaterial(e, lut, opts);
+        return { material, batch: new RibbonBatch(e, material) };
+      }
+      default: {
+        const material = createSpriteMaterial(e, lut, opts);
+        return { material, batch: new ParticleBatch(e, material) };
+      }
+    }
   }
 
   #loadTexture = (url: string): THREE.Texture => {
@@ -192,9 +239,8 @@ export class ParticleWorld {
     for (const e of template.emitters) {
       const lut = createLutTexture(e);
       if (lut) reg.luts.push(lut);
-      const material = createSpriteMaterial(e, lut, { time: this.time, loadTexture: this.#loadTexture, hook: this.#opts.materialHook });
+      const { batch, material } = this.#createBatch(e, lut);
       reg.materials.push(material);
-      const batch = new SpriteBatch(e, material);
       reg.batches.push(batch);
       this.object.add(batch.mesh);
     }
@@ -303,8 +349,8 @@ export class ParticleWorld {
     let drawCalls = 0;
     for (const reg of this.#effects.values())
       for (const b of reg.batches) {
-        particles += b.count;
-        if (b.count > 0) drawCalls++;
+        particles += b.particles;
+        if (b.instances > 0) drawCalls++;
       }
     return { effects: this.#effects.size, instances: this.#active.length, particles, drawCalls };
   }

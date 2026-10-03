@@ -1,0 +1,303 @@
+{
+  "format": "tsl-particles",
+  "version": 1,
+  "id": "firework",
+  "name": "Firework",
+  "emitters": [
+    {
+      "id": "shell",
+      "name": "shell",
+      "duration": 0.1,
+      "looping": false,
+      "startDelay": 0,
+      "maxParticles": 2,
+      "space": "world",
+      "spawn": [
+        {
+          "id": "shell.spawn.burst",
+          "type": "spawn.burst",
+          "params": {
+            "time": 0,
+            "count": 1,
+            "cycles": 1,
+            "interval": 0.1,
+            "probability": 1
+          }
+        }
+      ],
+      "init": [
+        {
+          "id": "shell.init.lifetime",
+          "type": "init.lifetime",
+          "params": {
+            "lifetime": {
+              "kind": "range",
+              "min": 1.1,
+              "max": 1.4
+            }
+          }
+        },
+        {
+          "id": "shell.init.shape",
+          "type": "init.shape",
+          "params": {
+            "shape": "cone",
+            "radius": 0,
+            "thickness": 1,
+            "angle": 6,
+            "arc": 360,
+            "boxSize": [
+              1,
+              1,
+              1
+            ],
+            "length": 1,
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "speed": {
+              "kind": "range",
+              "min": 15,
+              "max": 18
+            },
+            "randomDirection": 0
+          }
+        },
+        {
+          "id": "shell.init.size",
+          "type": "init.size",
+          "params": {
+            "size": 0.12
+          }
+        },
+        {
+          "id": "shell.init.color",
+          "type": "init.color",
+          "params": {
+            "color": {
+              "kind": "constant",
+              "color": "#ffd9a0",
+              "intensity": 3
+            }
+          }
+        }
+      ],
+      "update": [
+        {
+          "id": "shell.update.gravity",
+          "type": "update.gravity",
+          "params": {
+            "gravity": [
+              0,
+              -9.81,
+              0
+            ],
+            "scale": 1
+          }
+        }
+      ],
+      "render": [],
+      "renderer": {
+        "type": "ribbon",
+        "blend": "additive",
+        "shape": "glow",
+        "facing": "camera",
+        "uvMode": "stretch",
+        "mode": "particle",
+        "trail": {
+          "points": 24,
+          "minDistance": 0.15,
+          "lifetime": 0.6
+        },
+        "taper": 1,
+        "fade": 1
+      },
+      "subEmitters": [
+        {
+          "trigger": "death",
+          "emitter": "stars",
+          "count": 90,
+          "inheritVelocity": 0.4
+        }
+      ]
+    },
+    {
+      "id": "stars",
+      "name": "stars",
+      "duration": 0.1,
+      "looping": false,
+      "startDelay": 0,
+      "maxParticles": 200,
+      "space": "world",
+      "spawn": [],
+      "init": [
+        {
+          "id": "stars.init.lifetime",
+          "type": "init.lifetime",
+          "params": {
+            "lifetime": {
+              "kind": "range",
+              "min": 1.2,
+              "max": 1.9
+            }
+          }
+        },
+        {
+          "id": "stars.init.shape",
+          "type": "init.shape",
+          "params": {
+            "shape": "sphere",
+            "radius": 0.1,
+            "thickness": 0,
+            "angle": 25,
+            "arc": 360,
+            "boxSize": [
+              1,
+              1,
+              1
+            ],
+            "length": 1,
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "speed": {
+              "kind": "range",
+              "min": 7,
+              "max": 9
+            },
+            "randomDirection": 0
+          }
+        },
+        {
+          "id": "stars.init.size",
+          "type": "init.size",
+          "params": {
+            "size": {
+              "kind": "range",
+              "min": 0.08,
+              "max": 0.14
+            }
+          }
+        },
+        {
+          "id": "stars.init.color",
+          "type": "init.color",
+          "params": {
+            "color": {
+              "kind": "randomGradient",
+              "gradient": {
+                "colors": [
+                  {
+                    "t": 0,
+                    "color": "#ff4060"
+                  },
+                  {
+                    "t": 0.33,
+                    "color": "#ffd040"
+                  },
+                  {
+                    "t": 0.66,
+                    "color": "#40ff90"
+                  },
+                  {
+                    "t": 1,
+                    "color": "#4080ff"
+                  }
+                ],
+                "alphas": [
+                  {
+                    "t": 0,
+                    "a": 1
+                  }
+                ],
+                "intensity": 4
+              }
+            }
+          }
+        }
+      ],
+      "update": [
+        {
+          "id": "stars.update.gravity",
+          "type": "update.gravity",
+          "params": {
+            "gravity": [
+              0,
+              -9.81,
+              0
+            ],
+            "scale": 0.35
+          }
+        },
+        {
+          "id": "stars.update.drag",
+          "type": "update.drag",
+          "params": {
+            "drag": 1.1
+          }
+        }
+      ],
+      "render": [
+        {
+          "id": "stars.render.colorOverLife",
+          "type": "render.colorOverLife",
+          "params": {
+            "gradient": {
+              "colors": [
+                {
+                  "t": 0,
+                  "color": "#ffffff"
+                }
+              ],
+              "alphas": [
+                {
+                  "t": 0,
+                  "a": 1
+                },
+                {
+                  "t": 0.7,
+                  "a": 1
+                },
+                {
+                  "t": 1,
+                  "a": 0
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "renderer": {
+        "type": "ribbon",
+        "blend": "additive",
+        "shape": "glow",
+        "facing": "camera",
+        "uvMode": "stretch",
+        "mode": "particle",
+        "trail": {
+          "points": 16,
+          "minDistance": 0.08,
+          "lifetime": 0.45
+        },
+        "taper": 1,
+        "fade": 1
+      },
+      "eventDriven": true
+    }
+  ],
+  "parameters": []
+}

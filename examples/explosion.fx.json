@@ -560,6 +560,186 @@
       ]
     },
     {
+      "id": "debris",
+      "name": "debris",
+      "duration": 0.5,
+      "looping": false,
+      "startDelay": 0,
+      "maxParticles": 30,
+      "space": "world",
+      "spawn": [
+        {
+          "id": "debris.spawn.burst",
+          "type": "spawn.burst",
+          "params": {
+            "time": 0,
+            "count": 16,
+            "cycles": 1,
+            "interval": 0.1,
+            "probability": 1
+          }
+        }
+      ],
+      "init": [
+        {
+          "id": "debris.init.lifetime",
+          "type": "init.lifetime",
+          "params": {
+            "lifetime": {
+              "kind": "range",
+              "min": 1.6,
+              "max": 2.4
+            }
+          }
+        },
+        {
+          "id": "debris.init.shape",
+          "type": "init.shape",
+          "params": {
+            "shape": "hemisphere",
+            "radius": 0.3,
+            "thickness": 1,
+            "angle": 25,
+            "arc": 360,
+            "boxSize": [
+              1,
+              1,
+              1
+            ],
+            "length": 1,
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "speed": {
+              "kind": "range",
+              "min": 4,
+              "max": 9
+            },
+            "randomDirection": 0
+          }
+        },
+        {
+          "id": "debris.init.size",
+          "type": "init.size",
+          "params": {
+            "size": {
+              "kind": "range",
+              "min": 0.12,
+              "max": 0.3
+            }
+          }
+        },
+        {
+          "id": "debris.init.rotation",
+          "type": "init.rotation",
+          "params": {
+            "angle": {
+              "kind": "range",
+              "min": 0,
+              "max": 360
+            },
+            "spin": {
+              "kind": "range",
+              "min": -540,
+              "max": 540
+            }
+          }
+        },
+        {
+          "id": "debris.init.color",
+          "type": "init.color",
+          "params": {
+            "color": {
+              "kind": "range",
+              "a": "#3a3430",
+              "b": "#6b5e52"
+            }
+          }
+        }
+      ],
+      "update": [
+        {
+          "id": "debris.update.gravity",
+          "type": "update.gravity",
+          "params": {
+            "gravity": [
+              0,
+              -9.81,
+              0
+            ],
+            "scale": 1
+          }
+        },
+        {
+          "id": "debris.update.drag",
+          "type": "update.drag",
+          "params": {
+            "drag": 0.3
+          }
+        },
+        {
+          "id": "debris.update.collisionPlane",
+          "type": "update.collisionPlane",
+          "params": {
+            "point": [
+              0,
+              0,
+              0
+            ],
+            "normal": [
+              0,
+              1,
+              0
+            ],
+            "bounce": 0.35,
+            "friction": 0.5,
+            "lifetimeLoss": 0,
+            "kill": false
+          }
+        }
+      ],
+      "render": [
+        {
+          "id": "debris.render.sizeOverLife",
+          "type": "render.sizeOverLife",
+          "params": {
+            "curve": {
+              "keys": [
+                {
+                  "t": 0,
+                  "v": 1
+                },
+                {
+                  "t": 0.85,
+                  "v": 1
+                },
+                {
+                  "t": 1,
+                  "v": 0
+                }
+              ],
+              "interp": "smooth"
+            }
+          }
+        }
+      ],
+      "renderer": {
+        "type": "mesh",
+        "blend": "opaque",
+        "mesh": "icosahedron",
+        "orientation": "random",
+        "lit": true,
+        "roughness": 0.8
+      }
+    },
+    {
       "id": "flash",
       "name": "flash",
       "duration": 0.5,
