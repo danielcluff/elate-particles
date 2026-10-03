@@ -376,4 +376,26 @@ export const firework = effect("firework", "Firework", [
   ),
 ]);
 
-export const ALL_EFFECTS = [campfire, thruster, explosion, tracer, firework];
+// ---------------------------------------------------------------------------
+
+/** A very large emitter for the GPU simulator (falls back to the CPU without WebGPU). */
+export const swarm = effect("swarm", "GPU Swarm", [
+  emitter(
+    "swarm",
+    { maxParticles: 250_000, sim: "gpu" },
+    [
+      ["spawn.rate", { rate: 60_000 }],
+      ["init.lifetime", { lifetime: range(3, 4) }],
+      ["init.shape", { shape: "sphere", radius: 0.5, speed: range(3, 7) }],
+      ["init.size", { size: range(0.03, 0.07) }],
+      ["init.color", { color: { kind: "randomGradient", gradient: { colors: [{ t: 0, color: "#40a0ff" }, { t: 0.5, color: "#c060ff" }, { t: 1, color: "#ff7040" }], alphas: [{ t: 0, a: 1 }], intensity: 2 } } }],
+      ["update.vortex", { axis: [0, 1, 0], strength: 6, pull: 1.5 }],
+      ["update.turbulence", { strength: 4, frequency: 0.4, scroll: 0.4 }],
+      ["update.drag", { drag: 0.4 }],
+      ["render.colorOverLife", { gradient: { colors: [{ t: 0, color: "#ffffff" }], alphas: [{ t: 0, a: 0 }, { t: 0.1, a: 1 }, { t: 0.8, a: 1 }, { t: 1, a: 0 }] } }],
+    ],
+    { blend: "additive", shape: "glow" },
+  ),
+]);
+
+export const ALL_EFFECTS = [campfire, thruster, explosion, tracer, firework, swarm];

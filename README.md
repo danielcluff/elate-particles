@@ -11,6 +11,8 @@ Data-driven particle effects for three.js (WebGPU / TSL).
   fireworks).
 - **Sort groups**: alpha and additive sprites from different emitters and effects share one depth-sorted draw call,
   so smoke in front of fire actually dims it.
+- **GPU simulation** (`sim: "gpu"`) for huge emitters: TSL compute, same materials, CPU fallback. 240k particles at
+  60 fps for 0.4 ms of CPU.
 - **Batched rendering.** Every live instance of an emitter shares one instanced draw call, so 1,900 explosions render
   in 6 draw calls.
 - **Scalability**: a world particle budget (feedforward, no oscillation), quality tiers, distance LOD and culling,
@@ -77,7 +79,7 @@ executeCommand(fx, {
 
 ```bash
 pnpm install
-pnpm dev                                   # playground: campfire, thruster, explosion, tracers, fireworks, stress
+pnpm dev                                   # playground: campfire, thruster, explosion, tracers, fireworks, gpu, stress
 pnpm test
 pnpm typecheck
 pnpm tsx scripts/bench.ts explosion 1000   # headless simulator benchmark

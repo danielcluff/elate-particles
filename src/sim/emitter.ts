@@ -9,6 +9,20 @@ import { TrailStore } from "./trails";
 const EVENT_STRIDE = 11;
 const MAX_EVENTS = 512;
 
+/**
+ * GPU simulation target (see tsl-particles/three GpuEmitter). When set, spawn
+ * requests are forwarded here instead of creating CPU particles; spawn timing,
+ * LOD and budget logic stay on the CPU.
+ */
+export interface GpuSpawnTarget {
+  /** `n` particles requested this step (after LOD scaling). */
+  spawn(n: number): void;
+  /** Upper-bound estimate of live GPU particles (the CPU can't see them). */
+  readonly count: number;
+  /** Kill every particle (play / clear). */
+  reset(): void;
+}
+
 /** Receives sub-emitter events; implemented by EffectSim. */
 export interface EventSink {
   emitEvent(target: number, x: number, y: number, z: number, vx: number, vy: number, vz: number, r: number, g: number, b: number, a: number, count: number): void;
@@ -87,6 +101,14 @@ export class EmitterSim {
     for (let i = start; i < end; i++) slots[i] = trails.start(b.px[i], b.py[i], b.pz[i], this.time);
   }
 
+  /** Set by the runtime for GPU-simulated emitters. */
+  gpu: GpuSpawnTarget | null = null;
+
+  /** Live particles: CPU buffer count, or the GPU target's estimate. */
+  get particleCount(): number {
+    return this.gpu ? this.gpu.count : this.buf.count;
+  }
+
   reset(seed: number): void {
     this.time = 0;
     this.demand = 0;
@@ -95,6 +117,7 @@ export class EmitterSim {
     this.#eventCount = 0;
     this.#rng.seed(seed);
     this.trails?.reset();
+    this.gpu?.reset();
   }
 
   get pendingEvents(): number {
@@ -103,7 +126,7 @@ export class EmitterSim {
 
   /** True once it has nothing left to do (no particles, no queued events, no more spawning). */
   isDone(playing: boolean): boolean {
-    if (this.buf.count > 0 || this.#eventCount > 0) return false;
+    if (this.particleCount > 0 || this.#eventCount > 0) return false;
     const t = this.template;
     if (t.eventDriven || !playing) return true;
     return !t.looping && this.time - t.startDelay >= t.duration;
@@ -266,6 +289,10 @@ export class EmitterSim {
   }
 
   #spawn(n: number): void {
+    if (this.gpu) {
+      this.gpu.spawn(n);
+      return;
+    }
     const [start, end] = this.#alloc(n);
     if (end === start) return;
     const tpl = this.template;

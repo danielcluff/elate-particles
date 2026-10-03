@@ -142,7 +142,7 @@ export class EffectSim implements EventSink {
 
   get particleCount(): number {
     let n = 0;
-    for (const e of this.emitters) n += e.buf.count;
+    for (const e of this.emitters) n += e.particleCount;
     return n;
   }
 

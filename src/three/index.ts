@@ -13,3 +13,6 @@ export { createLutTexture, PARTICLE_ATTRIBUTES, PARTICLE_STRIDE, type ParticleMa
 export { createBuiltinMesh, isBuiltinMesh } from "./geometries";
 /** @deprecated renamed to ParticleMaterialContext */
 export type { ParticleMaterialContext as SpriteMaterialContext } from "./materials/common";
+export { GpuEmitter, gpuSupport } from "./gpu/emitter";
+export { registerGpuModule, getGpuModule, type GpuModuleImpl } from "./gpu/modules";
+export { GpuBuildContext, type GpuParticle } from "./gpu/context";

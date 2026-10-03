@@ -120,6 +120,49 @@ How ribbons work:
   offset + size ≤ the buffer's stride.)
 - Particle size is the ribbon width. Size/colour over life, `taper` and `fade` shape the tail.
 
+### GPU simulation (`sim: "gpu"`)
+
+For very large emitters (100k+ particles), an emitter can simulate on the GPU with TSL compute:
+
+```ts
+const world = new ParticleWorld({ renderer }); // the WebGPURenderer, needed to dispatch compute
+// in the document: { ..., "sim": "gpu", "maxParticles": 250000 }
+```
+
+- **Same data, same materials.** GPU particles use the CPU path's layout (four vec4s, `pA`–`pD`), stored in
+  `StorageInstancedBufferAttribute`s on the emitter's geometry. Compute kernels write them with `storage()`; the
+  regular sprite and mesh materials read them as instanced attributes. Nothing is read back to the CPU.
+- **Spawning stays on the CPU.** It produces one number per emitter per frame. `EmitterSim` forwards it to the GPU
+  target (`GpuSpawnTarget`) instead of creating CPU particles, so spawn timing, bursts, distance spawning, LOD and the
+  budget work unchanged.
+- **Ring-buffer allocation, no atomics.** Each frame's spawns take the next `n` slots of a ring of `maxParticles`
+  slots. If an emitter outruns its capacity, the oldest particles are recycled.
+- **Three kernels per emitter instance:**
+  - clear: on play, kills every slot;
+  - init: dispatched over just the new particles;
+  - update: over every slot; dead slots return early, and on death size goes to 0 so the instance draws nothing.
+- **Values on the GPU.** Each built-in init/update module has a TSL implementation (`three/gpu/modules.ts`,
+  extensible with `registerGpuModule`). FloatValues and ColorValues collapse to per-frame uniforms: the CPU evaluates
+  their bounds at the emitter's cycle time (`sample(t, r = 0)` and `sample(t, r = 1)` covers constants, ranges, curves
+  and parameter bindings alike) and the kernel mixes by a per-particle hash. Uniforms pull those values through
+  `onRenderUpdate`, because a TSL `Fn` body only runs when the kernel compiles, inside the first `compute()`.
+- **Same look as the CPU.** Turbulence uses a TSL port of the CPU's Perlin noise with the same permutation table (in
+  a storage buffer), so the noise field is identical. Side-by-side checks show the same shapes for cone emission +
+  gravity + drag + ground bounce, for vortex, and for turbulence. (An earlier version using MaterialX noise visibly
+  differed.) Individual particles differ: the random streams aren't the same.
+- **What the CPU knows.** It can't see GPU particles, so it keeps an upper-bound live count from spawn records and the
+  largest lifetime evaluated. That drives stats, the budget and when an effect finishes. GPU emitters skip frustum
+  culling; distance culling and LOD still apply through the effect's position.
+- **Falls back to the CPU** (one warning listing the reasons) for: no `renderer` option, the WebGL fallback backend,
+  sub-emitters, ribbon renderers, sorting, sort groups, curves over particle age in update modules, or modules without
+  a GPU implementation. `sim: "gpu"` is always safe to set.
+- **Per instance, not batched.** Each GPU emitter instance has its own buffers, kernels and draw call. GPU emitters
+  are for a few huge effects, not many small ones; CPU batching remains better for those.
+
+Measured (this machine, browser): a 250k-capacity swarm (60k/s, vortex + turbulence + drag) runs at 60 fps with
+**0.4 ms** of CPU time per frame and ~240k live particles. The same effect on the CPU took 22–62 ms per frame
+(1–15 fps) while still ramping up.
+
 ### Sorting
 
 `renderer.sort` (sprite, mesh, ribbon): `none` (default), `distance` (back to front along the camera's view direction;
@@ -290,10 +333,7 @@ else is ~15–20 ns per particle.
 
 **Known gaps, in priority order:**
 
-1. **GPU compute backend.** Same `EffectDoc`, with modules supplying a TSL implementation next to the CPU one, for
-   100k+ particle emitters (`emitter.sim: "cpu" | "gpu"`, as in Niagara). The CPU path stays the default because it
-   supports gameplay callbacks, sub-emitters and determinism cheaply.
-2. A **worker simulation** if main-thread time gets tight (SoA buffers are transferable).
+1. A **worker simulation** if main-thread time gets tight (SoA buffers are transferable).
 
 ### three.js and framework compatibility
 
@@ -455,13 +495,13 @@ on it. That's the only change Phase 3 asks of tsl-graph.
 | 1.1 | Redshift adoption | Wire `ParticleWorld` into `Game.ts`; thrusters on ships; replace `EffectSpawner`; delete the old particle system |
 | 1.2 | Runtime gaps | ✅ mesh + ribbon renderers, per-particle trails, multiple renderers per emitter, sorting + sort groups, soft particles + camera fade, budget/LOD/culling |
 | **2** | Effect editor | Stack UI, value widgets, timeline, viewport, store and undo, MCP + AI chat, `particle` graph kind in tsl-graph |
-| 2.1 | GPU backend | TSL compute implementations for built-in modules, `sim: "gpu"` per emitter |
+| 2.1 ✅ | GPU backend | TSL compute implementations for built-in modules, `sim: "gpu"` per emitter, CPU fallback |
 | **3** | FX studio | Monorepo, `studio-kit` extraction, asset model, prefabs, unified MCP, export bundle |
 
 ### Decisions to confirm
 
 1. **Package name.** `tsl-particles` is chosen to pair with `tsl-graph`.
 2. **Stack UI over a graph** for particle behaviour, with tsl-graph for materials and later custom modules (section 1).
-3. **CPU-first simulation**, with the GPU backend in 2.1. Redshift's effects are hundreds to tens of thousands of
+3. **CPU-first simulation**, with `sim: "gpu"` per emitter for huge effects (done). Redshift's effects are hundreds to tens of thousands of
    particles, where CPU simulation is cheaper overall and supports sub-emitters and gameplay hooks.
 4. **Redshift wiring.** The adapter is written and typechecked against Redshift's ECS but not applied there yet.

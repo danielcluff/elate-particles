@@ -1,0 +1,196 @@
+{
+  "format": "tsl-particles",
+  "version": 1,
+  "id": "swarm",
+  "name": "GPU Swarm",
+  "emitters": [
+    {
+      "id": "swarm",
+      "name": "swarm",
+      "duration": 1,
+      "looping": true,
+      "startDelay": 0,
+      "maxParticles": 250000,
+      "space": "world",
+      "spawn": [
+        {
+          "id": "swarm.spawn.rate",
+          "type": "spawn.rate",
+          "params": {
+            "rate": 60000
+          }
+        }
+      ],
+      "init": [
+        {
+          "id": "swarm.init.lifetime",
+          "type": "init.lifetime",
+          "params": {
+            "lifetime": {
+              "kind": "range",
+              "min": 3,
+              "max": 4
+            }
+          }
+        },
+        {
+          "id": "swarm.init.shape",
+          "type": "init.shape",
+          "params": {
+            "shape": "sphere",
+            "radius": 0.5,
+            "thickness": 1,
+            "angle": 25,
+            "arc": 360,
+            "boxSize": [
+              1,
+              1,
+              1
+            ],
+            "length": 1,
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "speed": {
+              "kind": "range",
+              "min": 3,
+              "max": 7
+            },
+            "randomDirection": 0
+          }
+        },
+        {
+          "id": "swarm.init.size",
+          "type": "init.size",
+          "params": {
+            "size": {
+              "kind": "range",
+              "min": 0.03,
+              "max": 0.07
+            }
+          }
+        },
+        {
+          "id": "swarm.init.color",
+          "type": "init.color",
+          "params": {
+            "color": {
+              "kind": "randomGradient",
+              "gradient": {
+                "colors": [
+                  {
+                    "t": 0,
+                    "color": "#40a0ff"
+                  },
+                  {
+                    "t": 0.5,
+                    "color": "#c060ff"
+                  },
+                  {
+                    "t": 1,
+                    "color": "#ff7040"
+                  }
+                ],
+                "alphas": [
+                  {
+                    "t": 0,
+                    "a": 1
+                  }
+                ],
+                "intensity": 2
+              }
+            }
+          }
+        }
+      ],
+      "update": [
+        {
+          "id": "swarm.update.vortex",
+          "type": "update.vortex",
+          "params": {
+            "axis": [
+              0,
+              1,
+              0
+            ],
+            "center": [
+              0,
+              0,
+              0
+            ],
+            "strength": 6,
+            "pull": 1.5
+          }
+        },
+        {
+          "id": "swarm.update.turbulence",
+          "type": "update.turbulence",
+          "params": {
+            "strength": 4,
+            "frequency": 0.4,
+            "scroll": 0.4
+          }
+        },
+        {
+          "id": "swarm.update.drag",
+          "type": "update.drag",
+          "params": {
+            "drag": 0.4
+          }
+        }
+      ],
+      "render": [
+        {
+          "id": "swarm.render.colorOverLife",
+          "type": "render.colorOverLife",
+          "params": {
+            "gradient": {
+              "colors": [
+                {
+                  "t": 0,
+                  "color": "#ffffff"
+                }
+              ],
+              "alphas": [
+                {
+                  "t": 0,
+                  "a": 0
+                },
+                {
+                  "t": 0.1,
+                  "a": 1
+                },
+                {
+                  "t": 0.8,
+                  "a": 1
+                },
+                {
+                  "t": 1,
+                  "a": 0
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "renderers": [
+        {
+          "type": "sprite",
+          "blend": "additive",
+          "shape": "glow",
+          "facing": "camera",
+          "id": "swarm.r0"
+        }
+      ],
+      "sim": "gpu"
+    }
+  ],
+  "parameters": []
+}

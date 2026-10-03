@@ -61,7 +61,8 @@ export function composeMatrix(p: ArrayLike<number>, q: ArrayLike<number>, s: num
 // 3D gradient noise (Perlin "improved"), deterministic, ~[-1, 1]
 // ---------------------------------------------------------------------------
 
-const PERM = new Uint8Array(512);
+/** Perlin permutation table (shared with the GPU noise in tsl-particles/three so both backends sample the same field). */
+export const PERM = new Uint8Array(512);
 {
   const p = new Uint8Array(256);
   for (let i = 0; i < 256; i++) p[i] = i;

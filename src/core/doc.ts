@@ -153,7 +153,9 @@ export function validateStructure(doc: EffectDoc): Issue[] {
     ids.add(e.id);
     if (!(e.duration > 0)) issues.push({ level: "error", message: "duration must be > 0", emitterId: e.id });
     if (!(e.maxParticles >= 1)) issues.push({ level: "error", message: "maxParticles must be ≥ 1", emitterId: e.id });
-    if (e.maxParticles > 100_000) issues.push({ level: "warning", message: "maxParticles above 100k is expensive on the CPU simulator", emitterId: e.id });
+    if (e.maxParticles > 100_000 && e.sim !== "gpu")
+      issues.push({ level: "warning", message: 'maxParticles above 100k is expensive on the CPU simulator (consider sim: "gpu")', emitterId: e.id });
+    if (e.maxParticles > 4_000_000) issues.push({ level: "warning", message: "maxParticles above 4M is a lot of GPU memory (64 bytes each)", emitterId: e.id });
     if (!Array.isArray(e.renderers)) issues.push({ level: "error", message: "Emitter has no renderers array", emitterId: e.id });
     const rids = new Set<string>();
     for (const r of e.renderers ?? []) {
@@ -185,6 +187,20 @@ export function validateStructure(doc: EffectDoc): Issue[] {
         if (!(r.trail.lifetime > 0)) issues.push({ level: "error", message: "trail.lifetime must be > 0", ...where });
         if (!(r.trail.minDistance >= 0)) issues.push({ level: "error", message: "trail.minDistance must be ≥ 0", ...where });
       }
+    }
+    if (e.sim !== undefined && e.sim !== "cpu" && e.sim !== "gpu") issues.push({ level: "error", message: `Unknown sim "${String(e.sim)}"`, emitterId: e.id });
+    if (e.sim === "gpu") {
+      // structural features the GPU simulator can't do; module-level support is checked by the runtime
+      const why: string[] = [];
+      if (e.subEmitters?.length) why.push("sub-emitters");
+      if (doc.emitters.some((o) => o.subEmitters?.some((s) => s.emitter === e.id))) why.push("being a sub-emitter target");
+      for (const r of e.renderers ?? []) {
+        if (r.enabled === false) continue;
+        if (r.type === "ribbon") why.push("ribbon renderers");
+        if (r.sort && r.sort !== "none") why.push("sorting");
+        if (r.type === "sprite" && r.sortGroup) why.push("sort groups");
+      }
+      if (why.length) issues.push({ level: "warning", message: `GPU simulation doesn't support ${[...new Set(why)].join(", ")}; this emitter will run on the CPU`, emitterId: e.id });
     }
     // one trail history per emitter: particle-mode ribbons must agree on it
     const trails = (e.renderers ?? []).filter((r) => r?.type === "ribbon" && r.mode === "particle" && r.enabled !== false);

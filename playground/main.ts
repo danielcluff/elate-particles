@@ -3,7 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { pass } from "three/tsl";
 import { ParticleWorld, type ParticleEffect } from "../src/three";
 import { validateEffect } from "../src/index";
-import { ALL_EFFECTS, campfire, explosion, firework, thruster, tracer } from "./effects";
+import { ALL_EFFECTS, campfire, explosion, firework, swarm, thruster, tracer } from "./effects";
 
 const renderer = new THREE.WebGPURenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -37,13 +37,15 @@ const sun = new THREE.DirectionalLight(0xffeedd, 2.5);
 sun.position.set(5, 10, 4);
 scene.add(sun);
 
-const world = new ParticleWorld();
+const world = new ParticleWorld({ renderer });
 scene.add(world.object);
-for (const fx of ALL_EFFECTS) {
-  const issues = validateEffect(fx);
-  if (issues.length) console.warn(fx.name, issues);
-  world.register(fx);
-}
+const registerAll = () => {
+  for (const fx of ALL_EFFECTS) {
+    const issues = validateEffect(fx);
+    if (issues.length) console.warn(fx.name, issues);
+    world.register(fx);
+  }
+};
 
 // ---- scenes ----------------------------------------------------------------
 
@@ -149,6 +151,19 @@ const scenes: Record<string, Scene> = {
       controls.target.set(0, 1.5, 0);
     },
   },
+  gpu: {
+    enter() {
+      camera.position.set(0, 14, 26);
+      controls.target.set(0, 2, 0);
+      live.push(world.spawn(swarm, { autoRelease: false, position: new THREE.Vector3(0, 3, 0) }));
+    },
+    update() {},
+    exit() {
+      clearLive();
+      camera.position.set(5, 3.5, 7);
+      controls.target.set(0, 1.5, 0);
+    },
+  },
   stress: {
     enter() {
       timer = 0;
@@ -204,6 +219,7 @@ let acc = 0;
 let simMs = 0;
 
 await renderer.init();
+registerAll();
 
 // ?post=1 renders through a RenderPipeline scene pass, as Redshift does
 const pipeline = new URLSearchParams(location.search).has("post") ? new THREE.RenderPipeline(renderer) : null;

@@ -119,7 +119,7 @@ particles.registerGeometry("hull-shard", gltf.scene.getObjectByName("Shard").geo
 ## Scalability
 
 ```ts
-#particles_ = new ParticleWorld({ budget: { maxParticles: 40_000 }, quality: settings.effectsQuality });
+#particles_ = new ParticleWorld({ budget: { maxParticles: 40_000 }, quality: settings.effectsQuality, renderer: this.Renderer });
 ```
 
 - Mark the player's own effects `scalability.essential: true` so a busy battle never thins out your own engines or
@@ -138,6 +138,12 @@ Give the alpha-blended smoke/dust sprites, and the fire and glows that sit among
 across effects. Smoke from one explosion then layers correctly against fire from another, and with engine haze, in a
 single draw call. The examples' campfire and explosion already share `"fx"`. Keep tracers, sparks and other additive
 effects that don't overlap smoke out of the group: they're cheaper on their own.
+
+## GPU emitters
+
+Pass the renderer (`renderer: this.Renderer`) and big ambient effects can run on the GPU with `"sim": "gpu"`: nebula
+dust around a station, a debris field, a sun's corona. Keep gameplay effects (explosions, trails, impacts) on the CPU:
+they're small, many, batched, and use sub-emitters and ribbons, which the GPU path doesn't support.
 
 ## Notes
 
