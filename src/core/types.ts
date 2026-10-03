@@ -226,6 +226,20 @@ export interface SubEmitterBinding {
   inheritColor?: boolean;
 }
 
+/** Per-emitter level of detail (Niagara "detail level" / scalability). */
+export interface EmitterLod {
+  /** Stop spawning beyond this camera distance (world units): drop detail emitters on far effects. */
+  maxDistance?: number;
+  /** Skip this emitter while ParticleWorld.quality is below this (0..1). */
+  minQuality?: number;
+  /**
+   * Spawn counts follow the world's quality / budget / distance scale (default
+   * true). Turn off for single "hero" particles (flash, shockwave) that must not
+   * be randomly thinned out.
+   */
+  scaleSpawn?: boolean;
+}
+
 export interface EmitterDoc {
   id: string;
   name: string;
@@ -250,6 +264,7 @@ export interface EmitterDoc {
   render: ModuleInstance[];
   renderer: RendererDoc;
   subEmitters?: SubEmitterBinding[];
+  lod?: EmitterLod;
 }
 
 export interface EffectParameter {
@@ -269,6 +284,27 @@ export interface PreviewSettings {
   motionSpeed?: number;
 }
 
+/** Per-effect scalability (Niagara scalability settings). Distances are from the camera, in world units. */
+export interface EffectScalability {
+  /**
+   * Beyond this distance the effect is culled: looping effects pause and are
+   * hidden; one-shot effects spawned out there are not created at all.
+   */
+  cullDistance?: number;
+  /** Spawn counts ramp from 1 at this distance down to `farSpawnScale` at `cullDistance`. */
+  lodDistance?: number;
+  /** Spawn scale reached at `cullDistance` (default 0.25). */
+  farSpawnScale?: number;
+  /** Looping effects outside the view frustum stop simulating, not just drawing (default false). */
+  pauseOffscreen?: boolean;
+  /** Live instances allowed at once. */
+  maxInstances?: number;
+  /** What happens when spawning beyond maxInstances (default "rejectNew"). */
+  overflow?: "rejectNew" | "killOldest";
+  /** Exempt from the world particle budget (e.g. the player's own engines and weapons). */
+  essential?: boolean;
+}
+
 export interface EffectDoc {
   format: typeof EFFECT_FORMAT;
   version: typeof EFFECT_VERSION;
@@ -276,6 +312,7 @@ export interface EffectDoc {
   name: string;
   emitters: EmitterDoc[];
   parameters: EffectParameter[];
+  scalability?: EffectScalability;
   createdAt?: number;
   updatedAt?: number;
   thumbnail?: string;

@@ -125,6 +125,7 @@ export function normalizeEffect(json: unknown): EffectDoc {
     ...(typeof json.updatedAt === "number" ? { updatedAt: json.updatedAt } : {}),
     ...(typeof json.thumbnail === "string" ? { thumbnail: json.thumbnail } : {}),
     ...(isObj(json.preview) ? { preview: json.preview as EffectDoc["preview"] } : {}),
+    ...(isObj(json.scalability) ? { scalability: json.scalability as EffectDoc["scalability"] } : {}),
   };
 }
 
@@ -165,6 +166,21 @@ export function validateStructure(doc: EffectDoc): Issue[] {
         }
       }
     }
+  }
+  const sc = doc.scalability;
+  if (sc) {
+    for (const key of ["cullDistance", "lodDistance", "maxInstances"] as const)
+      if (sc[key] !== undefined && !(sc[key]! > 0)) issues.push({ level: "error", message: `scalability.${key} must be > 0` });
+    if (sc.farSpawnScale !== undefined && !(sc.farSpawnScale >= 0 && sc.farSpawnScale <= 1)) issues.push({ level: "error", message: "scalability.farSpawnScale must be 0..1" });
+    if (sc.lodDistance !== undefined && sc.cullDistance !== undefined && sc.lodDistance >= sc.cullDistance)
+      issues.push({ level: "warning", message: "scalability.lodDistance should be less than cullDistance" });
+    if (sc.overflow !== undefined && sc.overflow !== "rejectNew" && sc.overflow !== "killOldest") issues.push({ level: "error", message: `Unknown overflow "${String(sc.overflow)}"` });
+  }
+  for (const e of doc.emitters) {
+    const l = e.lod;
+    if (!l) continue;
+    if (l.maxDistance !== undefined && !(l.maxDistance > 0)) issues.push({ level: "error", message: "lod.maxDistance must be > 0", emitterId: e.id });
+    if (l.minQuality !== undefined && !(l.minQuality >= 0 && l.minQuality <= 1)) issues.push({ level: "error", message: "lod.minQuality must be 0..1", emitterId: e.id });
   }
   const names = new Set<string>();
   for (const p of doc.parameters) {

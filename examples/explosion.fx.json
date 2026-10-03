@@ -560,7 +560,11 @@
           "probability": 0.5,
           "inheritVelocity": 0.1
         }
-      ]
+      ],
+      "lod": {
+        "maxDistance": 45,
+        "minQuality": 0.5
+      }
     },
     {
       "id": "debris",
@@ -740,6 +744,10 @@
         "orientation": "random",
         "lit": true,
         "roughness": 0.8
+      },
+      "lod": {
+        "maxDistance": 45,
+        "minQuality": 0.5
       }
     },
     {
@@ -870,6 +878,9 @@
         "blend": "additive",
         "shape": "glow",
         "facing": "camera"
+      },
+      "lod": {
+        "scaleSpawn": false
       }
     },
     {
@@ -1008,6 +1019,9 @@
         "blend": "additive",
         "shape": "ring",
         "facing": "horizontal"
+      },
+      "lod": {
+        "scaleSpawn": false
       }
     },
     {
@@ -1147,8 +1161,19 @@
         "sortOrder": -1,
         "sort": "distance"
       },
-      "eventDriven": true
+      "eventDriven": true,
+      "lod": {
+        "maxDistance": 45,
+        "minQuality": 0.5
+      }
     }
   ],
-  "parameters": []
+  "parameters": [],
+  "scalability": {
+    "lodDistance": 30,
+    "cullDistance": 150,
+    "farSpawnScale": 0.3,
+    "maxInstances": 800,
+    "overflow": "killOldest"
+  }
 }

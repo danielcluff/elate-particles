@@ -271,6 +271,13 @@ export const explosion = effect("explosion", "Explosion", [
   ),
 ]);
 
+// LOD: far explosions keep fireball + smoke; detail emitters drop out; hero particles are never thinned
+explosion.scalability = { lodDistance: 30, cullDistance: 150, farSpawnScale: 0.3, maxInstances: 800, overflow: "killOldest" };
+for (const e of explosion.emitters) {
+  if (e.id === "flash" || e.id === "shockwave") e.lod = { scaleSpawn: false };
+  if (e.id === "sparks" || e.id === "debris" || e.id === "puff") e.lod = { maxDistance: 45, minQuality: 0.5 };
+}
+
 // ---------------------------------------------------------------------------
 
 /** A fast projectile: ribbon tracer, glowing head, velocity-aligned bolt mesh. */

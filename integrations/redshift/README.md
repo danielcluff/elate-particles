@@ -116,6 +116,22 @@ renderer:
 particles.registerGeometry("hull-shard", gltf.scene.getObjectByName("Shard").geometry);
 ```
 
+## Scalability
+
+```ts
+#particles_ = new ParticleWorld({ budget: { maxParticles: 40_000 }, quality: settings.effectsQuality });
+```
+
+- Mark the player's own effects `scalability.essential: true` so a busy battle never thins out your own engines or
+  guns. Everyone else's effects share the budget.
+- `examples/explosion.fx.json` shows the pattern for distant combat: `lodDistance` / `cullDistance` thin and then skip
+  far explosions; sparks, debris and puffs have `lod.maxDistance` so far explosions draw only fireball and smoke; the
+  flash and shockwave have `lod.scaleSpawn: false` so they never randomly disappear.
+- In space, distances are large. Set `cullDistance` from the camera's typical framing, e.g. a bit beyond the radar
+  range where an explosion is still a visible dot.
+- `pauseOffscreen` suits ambient loops (station vents, nebula sparkle), not gameplay effects whose state should
+  advance off-screen.
+
 ## Notes
 
 - **Units.** Effects are authored in world units. Use `scale` on spawn (or the component) to resize an effect per use,

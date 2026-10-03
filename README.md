@@ -11,6 +11,8 @@ Data-driven particle effects for three.js (WebGPU / TSL).
   fireworks).
 - **Batched rendering.** Every live instance of an emitter shares one instanced draw call, so 1,900 explosions render
   in 6 draw calls.
+- **Scalability**: a world particle budget (feedforward, no oscillation), quality tiers, distance LOD and culling,
+  frustum culling, instance caps, essential effects exempt from the budget.
 - **One command layer** (`executeCommand`) for every kind of editing: UI, MCP, AI agents and scripts.
 
 Design, research and roadmap: [docs/DESIGN.md](docs/DESIGN.md). Redshift wiring:
@@ -23,7 +25,7 @@ import * as THREE from "three/webgpu";
 import { ParticleWorld } from "tsl-particles/three";
 import { normalizeEffect } from "tsl-particles";
 
-const world = new ParticleWorld();
+const world = new ParticleWorld({ budget: { maxParticles: 50_000 }, quality: settings.effectsQuality });
 scene.add(world.object);
 world.register(normalizeEffect(await (await fetch("/effects/explosion.fx.json")).json()));
 

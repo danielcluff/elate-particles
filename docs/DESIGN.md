@@ -118,6 +118,41 @@ needs `world.update(dt, camera)`), `oldestOnTop`, `newestOnTop`.
   premultiplied smoke); additive emitters are order-independent.
 - Between emitters, `sortOrder` (the mesh's `renderOrder`) decides.
 
+### Scalability: budget, LOD, culling
+
+Modelled on Niagara's scalability settings, scoped to what a game needs:
+
+| Where | Setting | Effect |
+| --- | --- | --- |
+| `EffectDoc.scalability` | `cullDistance` | Beyond it (camera distance): looping effects pause and are hidden; one-shots spawned out there return a `rejected` inert handle |
+| | `lodDistance`, `farSpawnScale` | Spawn counts ramp from 1 down to `farSpawnScale` (0.25) between `lodDistance` and `cullDistance` |
+| | `maxInstances`, `overflow` | Cap live instances; `rejectNew` (default) refuses the spawn, `killOldest` releases the oldest instance, whose particles vanish at once |
+| | `pauseOffscreen` | Looping effects outside the frustum stop simulating; their frozen bounds keep being tested, so they resume when seen |
+| | `essential` | Exempt from the world budget (the player's own engines and weapons) |
+| `EmitterDoc.lod` | `maxDistance`, `minQuality` | Drop detail emitters (sparks, debris) far away or at low quality while the fireball and smoke stay |
+| | `scaleSpawn: false` | Never thin out this emitter: single hero particles (flash, shockwave) would otherwise vanish at random |
+| `ParticleWorld` | `budget.maxParticles` | Soft cap on simulated particles (below) |
+| | `quality` | 0..1 global spawn multiplier and `minQuality` threshold (device tiers / settings menu) |
+| | `frustumCulling` | Instances outside the view aren't drawn (default on; needs a camera in `update`) |
+
+- **Spawn scaling** multiplies spawn and sub-emitter counts. It uses stochastic rounding with the emitter's own RNG,
+  so average rates are exact and runs stay deterministic.
+- **Bounds** for frustum culling are tracked inside the existing integrate loop (min/max position, largest size,
+  largest speed), plus margins for sprite size, size over life, velocity stretch and trail length. Branch-free
+  `Math.min`/`Math.max` keeps this to about 1.5 ns per particle; `if` compares cost about 8.
+- **The budget is feedforward, not feedback.** A controller that reacts to the live particle count oscillates,
+  because the count lags spawn decisions by a whole lifetime (measured: a 3 s limit cycle between 250 and 2,300 on a
+  1,000 budget). Instead each emitter tracks its unscaled spawn demand and the average lifetime it spawns. The world
+  predicts the steady population (Little's law: rate × lifetime) and solves for the scale that fits the budget, with
+  essential effects and non-scalable emitters as fixed load, plus a correction if the live count runs over 1.25×. It
+  converges to the exact ratio without oscillating. Known transient: when many effects start at the same instant, the
+  demand estimate needs about 0.5 s, so the count can overshoot for a second or two before settling.
+- Stats report `particles` (simulated), `drawnParticles`, `culledInstances`, `budgetScale` and `rejectedSpawns`.
+
+Measured in the stress scene (200 explosions/s): unconstrained ~17k particles; budget 10k holds 9.9–10.6k; quality 0.3
+gives ~3.4k and drops sparks, debris and puffs (7 → 4 draw calls). With the camera turned away, all 470 instances are
+culled, 0 particles are drawn and all of them keep simulating. Facing the field again resumes drawing.
+
 ### Soft particles and camera fade
 
 Sprite and ribbon renderers take `depthFade` (soft particles) and `cameraFade`, both in world units, 0 = off:
@@ -227,8 +262,7 @@ else is ~15–20 ns per particle.
    Niagara). Interleaving two alpha emitters correctly would need merging their batches.
 3. **Multiple renderers per emitter** (Niagara allows several): a spark as a sprite head *and* a trail currently takes
    two emitters, or a trail with a bright head via `fade`.
-4. **Budgets and LOD:** a world particle budget, distance culling of instances, quality tiers (Niagara scalability).
-5. A **worker simulation** if main-thread time gets tight (SoA buffers are transferable).
+4. A **worker simulation** if main-thread time gets tight (SoA buffers are transferable).
 
 ### three.js and framework compatibility
 
@@ -388,7 +422,7 @@ on it. That's the only change Phase 3 asks of tsl-graph.
 | --- | --- | --- |
 | **1** ✅ | Runtime library | Core, 20 modules, CPU sim, batched TSL sprite/mesh/ribbon renderers, Redshift adapter, examples, tests, playground |
 | 1.1 | Redshift adoption | Wire `ParticleWorld` into `Game.ts`; thrusters on ships; replace `EffectSpawner`; delete the old particle system |
-| 1.2 | Runtime gaps | ✅ mesh + ribbon renderers, per-particle trails, sorting, soft particles + camera fade; next: world budget/LOD |
+| 1.2 | Runtime gaps | ✅ mesh + ribbon renderers, per-particle trails, sorting, soft particles + camera fade, budget/LOD/culling |
 | **2** | Effect editor | Stack UI, value widgets, timeline, viewport, store and undo, MCP + AI chat, `particle` graph kind in tsl-graph |
 | 2.1 | GPU backend | TSL compute implementations for built-in modules, `sim: "gpu"` per emitter |
 | **3** | FX studio | Monorepo, `studio-kit` extraction, asset model, prefabs, unified MCP, export bundle |

@@ -54,6 +54,16 @@ export interface EmitterTemplate {
   ordered: boolean;
   /** Per-particle trail history settings (ribbon mode "particle"), else null. */
   trail: TrailSettings | null;
+  /** LOD (EmitterDoc.lod): spawn scaling applies; distance / quality cut-offs. */
+  scaleSpawn: boolean;
+  maxDistance: number;
+  minQuality: number;
+  /**
+   * Bounds margins: rendered half-size = size × sizeMargin; trails and
+   * velocity-stretched sprites reach back speed × speedMargin.
+   */
+  sizeMargin: number;
+  speedMargin: number;
   birth: ResolvedSubEmitter[];
   death: ResolvedSubEmitter[];
 }
@@ -174,6 +184,12 @@ export function compileEffect(doc: EffectDoc): EffectTemplate {
       renderer: e.renderer,
       ordered: e.renderer?.type === "ribbon" && !trail,
       trail,
+      scaleSpawn: e.lod?.scaleSpawn !== false,
+      maxDistance: e.lod?.maxDistance ?? Infinity,
+      minQuality: e.lod?.minQuality ?? 0,
+      // half the quad × the largest size-over-life value (mesh primitives are ~1 unit across too)
+      sizeMargin: 0.5 * (sizeLut ? Math.max(1e-3, ...(sizeLut as Float32Array)) : 1),
+      speedMargin: trail ? trail.lifetime : r?.type === "sprite" && r.facing === "velocity" ? (r.stretch ?? 0.1) : 0,
       birth: resolveSubs("birth"),
       death: resolveSubs("death"),
     };

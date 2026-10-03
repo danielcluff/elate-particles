@@ -178,12 +178,21 @@ function setScene(name: string) {
   if (name === "stress") camera.position.set(30, 22, 34);
   scenes[current].enter();
   for (const b of document.querySelectorAll<HTMLButtonElement>("[data-scene]")) b.classList.toggle("on", b.dataset.scene === name);
-  document.querySelector<HTMLElement>("#rate-row")!.style.display = name === "stress" ? "" : "none";
+  for (const id of ["#rate-row", "#budget-row", "#quality-row"]) document.querySelector<HTMLElement>(id)!.style.display = name === "stress" ? "" : "none";
   document.querySelector<HTMLElement>("#throttle-row")!.style.display = name === "thruster" ? "" : "none";
 }
 
 for (const b of document.querySelectorAll<HTMLButtonElement>("[data-scene]")) b.onclick = () => setScene(b.dataset.scene!);
 document.querySelector<HTMLInputElement>("#rate")!.oninput = (e) => (ui.rate = +(e.target as HTMLInputElement).value);
+document.querySelector<HTMLInputElement>("#budget")!.oninput = (e) => {
+  const v = +(e.target as HTMLInputElement).value;
+  world.budget = v || null;
+  document.querySelector("#budget-label")!.textContent = v ? `${v / 1000}k` : "off";
+};
+document.querySelector<HTMLInputElement>("#quality")!.oninput = (e) => {
+  world.quality = +(e.target as HTMLInputElement).value;
+  document.querySelector("#quality-label")!.textContent = world.quality.toFixed(2);
+};
 document.querySelector<HTMLInputElement>("#throttle")!.oninput = (e) => (ui.throttle = +(e.target as HTMLInputElement).value);
 
 // ---- loop ------------------------------------------------------------------
@@ -217,7 +226,10 @@ renderer.setAnimationLoop(() => {
   acc += dt;
   if (acc >= 0.5) {
     const s = world.stats;
-    stats.textContent = `${Math.round(frames / acc)} fps · sim+pack ${(simMs / frames).toFixed(2)} ms · ${s.particles} particles · ${s.instances} instances · ${s.drawCalls} draw calls`;
+    stats.textContent =
+      `${Math.round(frames / acc)} fps · sim+pack ${(simMs / frames).toFixed(2)} ms · ${s.particles} simulated / ${s.drawnParticles} drawn · ` +
+      `${s.instances} instances (${s.culledInstances} culled) · ${s.drawCalls} draws` +
+      (world.budget ? ` · budget scale ${s.budgetScale.toFixed(2)}` : "");
     frames = 0;
     acc = 0;
     simMs = 0;
@@ -230,4 +242,4 @@ addEventListener("resize", () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
-Object.assign(window, { world, THREE, renderer });
+Object.assign(window, { world, THREE, renderer, camera, controls });

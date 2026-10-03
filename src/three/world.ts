@@ -34,6 +34,17 @@ export interface ParticleWorldOptions {
   geometries?: Record<string, THREE.BufferGeometry>;
   /** Larger frame deltas are clamped to this (seconds). Default 0.1. */
   maxDelta?: number;
+  /**
+   * Soft limit on simulated particles. Spawning of non-essential effects is
+   * scaled so the predicted steady population (spawn rate × lifetime) fits the
+   * budget; essential effects and emitters with lod.scaleSpawn = false count
+   * as fixed load.
+   */
+  budget?: { maxParticles: number };
+  /** 0..1 global detail level (spawn multiplier; emitters with lod.minQuality above it are skipped). Default 1. */
+  quality?: number;
+  /** Skip drawing instances outside the camera frustum (needs a camera in update). Default true. */
+  frustumCulling?: boolean;
 }
 
 export interface SpawnOptions {
@@ -51,8 +62,17 @@ export interface SpawnOptions {
 export interface ParticleWorldStats {
   effects: number;
   instances: number;
+  /** Particles simulated this frame. */
   particles: number;
+  /** Particles actually drawn (after distance and frustum culling). */
+  drawnParticles: number;
   drawCalls: number;
+  /** Instances not drawn this frame: distance-culled, paused off-screen or outside the frustum. */
+  culledInstances: number;
+  /** Current budget multiplier on non-essential spawning (1 = unconstrained). */
+  budgetScale: number;
+  /** Spawns refused this frame by maxInstances or distance culling. */
+  rejectedSpawns: number;
 }
 
 interface Registered {
@@ -61,6 +81,10 @@ interface Registered {
   materials: THREE.Material[];
   luts: THREE.Texture[];
   pool: EffectSim[];
+  /** Live handles in spawn order (maxInstances / killOldest). */
+  live: ParticleEffect[];
+  /** Any emitter loops: culling pauses it instead of letting it finish. */
+  looping: boolean;
 }
 
 /**
@@ -75,13 +99,25 @@ export class ParticleEffect {
   onFinished: (() => void) | null = null;
   #sim: EffectSim | null;
   #world: ParticleWorld;
+  /** True when spawn() refused this effect (maxInstances, or a one-shot beyond cullDistance). */
+  readonly rejected: boolean;
+  /** @internal culling state, maintained by the world */
+  _culled = false;
+  /** @internal */
+  _visible = true;
 
   /** @internal */
-  constructor(world: ParticleWorld, effectId: string, sim: EffectSim, autoRelease: boolean) {
+  constructor(world: ParticleWorld, effectId: string, sim: EffectSim | null, autoRelease: boolean) {
     this.#world = world;
     this.effectId = effectId;
     this.#sim = sim;
     this.autoRelease = autoRelease;
+    this.rejected = !sim;
+  }
+
+  /** Not drawn last frame (distance-culled, paused off-screen or outside the frustum). */
+  get culled(): boolean {
+    return this._culled;
   }
 
   /** The underlying simulation (null once released). */
@@ -174,6 +210,8 @@ export class ParticleWorld {
     this.#opts = opts;
     this.object.name = "ParticleWorld";
     this.object.matrixAutoUpdate = false;
+    this.#quality = Math.max(0, Math.min(1, opts.quality ?? 1));
+    this.#budget = opts.budget?.maxParticles ?? null;
     for (const [name, g] of Object.entries(opts.geometries ?? {})) this.#geometries.set(name, g);
   }
 
@@ -235,7 +273,15 @@ export class ParticleWorld {
     const old = this.#effects.get(doc.id);
     if (old) this.#disposeRegistered(old);
 
-    const reg: Registered = { template, batches: [], materials: [], luts: [], pool: [] };
+    const reg: Registered = {
+      template,
+      batches: [],
+      materials: [],
+      luts: [],
+      pool: [],
+      live: old?.live ?? [],
+      looping: template.emitters.some((e) => e.looping),
+    };
     for (const e of template.emitters) {
       const lut = createLutTexture(e);
       if (lut) reg.luts.push(lut);
@@ -280,28 +326,55 @@ export class ParticleWorld {
     this.#effects.delete(id);
   }
 
-  /** Spawns an effect by id (or document, registered on first use). */
+  /**
+   * Spawns an effect by id (or document, registered on first use). May return
+   * a `rejected` (inert) handle when scalability refuses the spawn: the effect
+   * is at maxInstances with overflow "rejectNew", or it is a one-shot beyond its
+   * cullDistance from the last camera.
+   */
   spawn(effect: string | EffectDoc, opts: SpawnOptions = {}): ParticleEffect {
     const id = typeof effect === "string" ? effect : effect.id;
     if (typeof effect !== "string" && !this.#effects.has(id)) this.register(effect);
     const reg = this.#effects.get(id);
     if (!reg) throw new Error(`Particle effect "${id}" is not registered`);
+    const sc = reg.template.doc.scalability;
+
+    if (sc) {
+      // one-shots that start out of range would never be seen
+      if (sc.cullDistance && !reg.looping && this.#hasView && opts.position) {
+        const v = this.#view;
+        const p = opts.position;
+        if ((p.x - v.px) ** 2 + (p.y - v.py) ** 2 + (p.z - v.pz) ** 2 > sc.cullDistance ** 2) return this.#reject(id);
+      }
+      if (sc.maxInstances && reg.live.length >= sc.maxInstances) {
+        if ((sc.overflow ?? "rejectNew") === "rejectNew") return this.#reject(id);
+        reg.live[0].release();
+      }
+    }
 
     const sim = reg.pool.pop() ?? new EffectSim(reg.template);
     sim.setVelocity(null);
+    sim.spawnScale = 1;
     sim.transform.scale = opts.scale ?? 1;
     Object.assign(sim.params, reg.template.paramDefaults, opts.params);
     if (opts.position) sim.setPosition(opts.position.x, opts.position.y, opts.position.z);
     else sim.setPosition(0, 0, 0);
     if (opts.rotation) sim.setRotation(opts.rotation.x, opts.rotation.y, opts.rotation.z, opts.rotation.w);
     else sim.setRotation(0, 0, 0, 1);
+    for (const e of sim.emitters) e.lodActive = true;
     const seed = opts.seed ?? this.#seed++;
     if (opts.paused) sim.clear();
     else sim.play(seed);
 
     const handle = new ParticleEffect(this, id, sim, opts.autoRelease ?? true);
     this.#active.push(handle);
+    reg.live.push(handle);
     return handle;
+  }
+
+  #reject(id: string): ParticleEffect {
+    this.#rejected++;
+    return new ParticleEffect(this, id, null, true);
   }
 
   /** @internal called by ParticleEffect.release */
@@ -312,13 +385,44 @@ export class ParticleWorld {
       this.#active.pop();
     }
     sim.clear();
-    // only recycle sims built from the current template (not ones orphaned by a re-register)
     const reg = this.#effects.get(handle.effectId);
-    if (reg && sim.template === reg.template) reg.pool.push(sim);
+    if (reg) {
+      const j = reg.live.indexOf(handle);
+      if (j >= 0) reg.live.splice(j, 1);
+      // only recycle sims built from the current template (not ones orphaned by a re-register)
+      if (sim.template === reg.template) reg.pool.push(sim);
+    }
+  }
+
+  /** Global detail level 0..1 (see ParticleWorldOptions.quality). */
+  get quality(): number {
+    return this.#quality;
+  }
+  set quality(q: number) {
+    this.#quality = Math.max(0, Math.min(1, q));
+  }
+
+  /** Soft particle budget (see ParticleWorldOptions.budget); null = unlimited. */
+  get budget(): number | null {
+    return this.#budget;
+  }
+  set budget(n: number | null) {
+    this.#budget = n && n > 0 ? n : null;
+    if (!this.#budget) this.#budgetScale = 1;
   }
 
   readonly #view: SortView = { px: 0, py: 0, pz: 0, fx: 0, fy: 0, fz: -1 };
+  #hasView = false;
   #warnedNoCamera = false;
+  readonly #frustum = new THREE.Frustum();
+  readonly #projView = new THREE.Matrix4();
+  readonly #box = new THREE.Box3();
+  readonly #bounds = new Float32Array(6);
+  #quality = 1;
+  #budget: number | null = null;
+  #budgetScale = 1;
+  #rejected = 0;
+  #frameStats = { particles: 0, culled: 0, rejected: 0 };
 
   /**
    * Steps every live effect and fills the GPU buffers. Pass the camera that
@@ -329,26 +433,9 @@ export class ParticleWorld {
     if (dt <= 0) return;
     this.time.value += dt;
 
-    const active = this.#active;
-    for (let i = active.length - 1; i >= 0; i--) {
-      const h = active[i];
-      const sim = h.sim!;
-      const wasAlive = sim.alive;
-      sim.step(dt);
-      if (wasAlive && !sim.alive) {
-        h.onFinished?.();
-        if (h.autoRelease && h.sim) h.release();
-      }
-    }
-
-    for (const reg of this.#effects.values()) for (const b of reg.batches) b.begin();
-    for (const h of active) {
-      const sim = h.sim!;
-      if (sim.state === "stopped") continue;
-      const batches = this.#effects.get(h.effectId)!.batches;
-      for (const e of sim.emitters) batches[e.template.index].pack(e, e.template.space === "local" ? sim.matrix : null);
-    }
+    // camera: view for sorting / distance LOD, frustum for culling
     let view: SortView | null = null;
+    let frustum: THREE.Frustum | null = null;
     if (camera) {
       camera.updateMatrixWorld();
       const e = camera.matrixWorld.elements;
@@ -361,6 +448,11 @@ export class ParticleWorld {
       v.fy = -e[9] / l;
       v.fz = -e[10] / l;
       view = v;
+      this.#hasView = true;
+      if (this.#opts.frustumCulling !== false) {
+        this.#projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+        frustum = this.#frustum.setFromProjectionMatrix(this.#projView, camera.coordinateSystem, camera.reversedDepth);
+      }
     } else if (!this.#warnedNoCamera) {
       for (const reg of this.#effects.values())
         if (reg.template.emitters.some((em) => em.renderer.sort === "distance")) {
@@ -369,7 +461,102 @@ export class ParticleWorld {
           break;
         }
     }
+
+    const quality = this.#quality;
+    const active = this.#active;
+    let simulated = 0;
+    let fixedLoad = 0;
+    let scalableLoad = 0;
+    for (let i = active.length - 1; i >= 0; i--) {
+      const h = active[i];
+      const sim = h.sim!;
+      const reg = this.#effects.get(h.effectId)!;
+      const sc = reg.template.doc.scalability;
+
+      // distance LOD
+      let dist = 0;
+      if (view) {
+        const p = sim.transform.position;
+        dist = Math.sqrt((p[0] - view.px) ** 2 + (p[1] - view.py) ** 2 + (p[2] - view.pz) ** 2);
+      }
+      const farCulled = !!(view && sc?.cullDistance && dist > sc.cullDistance);
+      h._culled = farCulled;
+      // looping effects pause while out of range, or off-screen when asked to
+      if (farCulled && reg.looping) continue;
+      // paused, not culled: its frozen bounds are still frustum-tested below, so it resumes once in view
+      if (sc?.pauseOffscreen && reg.looping && frustum && !h._visible && sim.particleCount > 0) {
+        simulated += sim.particleCount;
+        continue;
+      }
+
+      let lodScale = quality;
+      if (farCulled) lodScale = 0;
+      else if (view && sc?.lodDistance && dist > sc.lodDistance) {
+        const far = sc.farSpawnScale ?? 0.25;
+        const end = sc.cullDistance ?? sc.lodDistance * 2;
+        const f = Math.min(1, (dist - sc.lodDistance) / Math.max(1e-6, end - sc.lodDistance));
+        lodScale *= 1 + (far - 1) * f;
+      }
+      sim.spawnScale = lodScale * (sc?.essential ? 1 : this.#budgetScale);
+      for (const em of sim.emitters) {
+        const t = em.template;
+        em.lodActive = quality >= t.minQuality && !(view && dist > t.maxDistance);
+      }
+
+      const wasAlive = sim.alive;
+      sim.step(dt);
+      simulated += sim.particleCount;
+      // budget load: what this instance would hold at budget scale 1, or its actual count if exempt
+      for (const em of sim.emitters) {
+        if (sc?.essential || !em.template.scaleSpawn) fixedLoad += em.buf.count;
+        else if (em.lodActive) scalableLoad += em.demand * em.lifeEstimate * lodScale;
+      }
+      if (wasAlive && !sim.alive) {
+        h.onFinished?.();
+        if (h.autoRelease && h.sim) h.release();
+      }
+    }
+
+    // pack what is visible
+    let culled = 0;
+    const box = this.#box;
+    const bb = this.#bounds;
+    for (const reg of this.#effects.values()) for (const b of reg.batches) b.begin();
+    for (const h of active) {
+      const sim = h.sim!;
+      if (sim.state === "stopped" && sim.particleCount === 0) continue;
+      if (h._culled) {
+        culled++;
+        continue;
+      }
+      if (frustum) {
+        h._visible = sim.worldBounds(bb) && frustum.intersectsBox(box.set(box.min.set(bb[0], bb[1], bb[2]), box.max.set(bb[3], bb[4], bb[5])));
+        if (!h._visible) {
+          culled++;
+          continue;
+        }
+      } else h._visible = true;
+      const batches = this.#effects.get(h.effectId)!.batches;
+      for (const e of sim.emitters) batches[e.template.index].pack(e, e.template.space === "local" ? sim.matrix : null);
+    }
     for (const reg of this.#effects.values()) for (const b of reg.batches) b.end(view);
+
+    // budget, feedforward: particle counts lag spawn decisions by a lifetime, so
+    // reacting to the live count oscillates. Instead predict the steady population
+    // (Little's law, demand × lifetime per emitter) and pick the scale that fits it.
+    const budget = this.#budget;
+    if (budget) {
+      let target = scalableLoad > 0 ? Math.max(0, budget - fixedLoad) / scalableLoad : 1;
+      // prediction error correction: if the live count is well over, lean in proportionally
+      if (simulated > budget * 1.25) target *= (budget * 1.25) / simulated;
+      target = Math.max(0.01, Math.min(1, target));
+      this.#budgetScale += (target - this.#budgetScale) * Math.min(1, dt * 3);
+    }
+
+    this.#frameStats.particles = simulated;
+    this.#frameStats.culled = culled;
+    this.#frameStats.rejected = this.#rejected;
+    this.#rejected = 0;
   }
 
   get stats(): ParticleWorldStats {
@@ -380,7 +567,17 @@ export class ParticleWorld {
         particles += b.particles;
         if (b.instances > 0) drawCalls++;
       }
-    return { effects: this.#effects.size, instances: this.#active.length, particles, drawCalls };
+    const f = this.#frameStats;
+    return {
+      effects: this.#effects.size,
+      instances: this.#active.length,
+      particles: f.particles,
+      drawnParticles: particles,
+      drawCalls,
+      culledInstances: f.culled,
+      budgetScale: this.#budgetScale,
+      rejectedSpawns: f.rejected,
+    };
   }
 
   #disposeRegistered(reg: Registered): void {

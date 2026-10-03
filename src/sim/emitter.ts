@@ -42,12 +42,41 @@ export class EmitterSim {
     this.buf = new ParticleBuffer(template.capacity, template.extraChannels);
     this.state = new Float64Array(template.stateSize);
     this.ctx = new SimContext(this.#rng, params, transform, template.space);
+    this.#spawnStates = template.spawn.map((m) => this.state.subarray(m.stateOffset, m.stateOffset + (m.rt.stateSize ?? 0)));
     const t = template.trail;
     this.trails = t ? new TrailStore(template.capacity, t.points, t.minDistance, t.lifetime) : null;
     this.#trailSlot = t ? this.buf.channel("trailSlot") : null;
   }
 
   readonly #trailSlot: Float32Array | null;
+  /** Per spawn module state views, created once (subarray allocates). */
+  #spawnStates: Float64Array[] = [];
+
+  /** LOD: false stops spawning (and drops queued events); set by the world each frame. */
+  lodActive = true;
+  /**
+   * Bounds of live particles after the last step, simulation space:
+   * [minX, minY, minZ, maxX, maxY, maxZ], plus the largest particle size and
+   * speed². Meaningful only while buf.count > 0.
+   */
+  readonly bounds = new Float32Array(6);
+  maxSize = 0;
+  maxSpeed2 = 0;
+  /**
+   * Budget prediction (Little's law: population ≈ spawn rate × lifetime):
+   * smoothed spawn demand per second *before* LOD scaling, and the smoothed
+   * lifetime of particles it spawned.
+   */
+  demand = 0;
+  lifeEstimate = 1;
+
+  #trackLife(start: number, end: number): void {
+    let sum = 0;
+    const life = this.buf.life;
+    for (let i = start; i < end; i++) sum += life[i];
+    const mean = sum / (end - start);
+    this.lifeEstimate += (mean - this.lifeEstimate) * 0.2;
+  }
 
   /** New particles [start, end) are in simulation space: give each a trail slot starting at its birth position. */
   #startTrails(start: number, end: number): void {
@@ -60,6 +89,7 @@ export class EmitterSim {
 
   reset(seed: number): void {
     this.time = 0;
+    this.demand = 0;
     this.buf.clear();
     this.state.fill(0);
     this.#eventCount = 0;
@@ -97,18 +127,24 @@ export class EmitterSim {
     e[o + 10] = count;
   }
 
-  step(dt: number, playing: boolean): void {
+  /** Stochastic rounding of a scaled count: keeps the average rate, deterministic per seed. */
+  #scaleCount(n: number, scale: number): number {
+    const x = n * scale;
+    const k = Math.floor(x);
+    return k + (this.#rng.next() < x - k ? 1 : 0);
+  }
+
+  /** @param spawnScale world LOD/budget multiplier for spawn counts (ignored when the emitter opts out) */
+  step(dt: number, playing: boolean, spawnScale = 1): void {
     const tpl = this.template;
     const ctx = this.ctx;
     this.time += dt;
     const t = this.time - tpl.startDelay;
 
     ctx.dt = dt;
-    ctx.distance = Math.hypot(
-      this.#transform.position[0] - this.#transform.prevPosition[0],
-      this.#transform.position[1] - this.#transform.prevPosition[1],
-      this.#transform.position[2] - this.#transform.prevPosition[2],
-    );
+    const tp = this.#transform.position, pp = this.#transform.prevPosition;
+    const ddx = tp[0] - pp[0], ddy = tp[1] - pp[1], ddz = tp[2] - pp[2];
+    ctx.distance = Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
     if (t >= 0) {
       ctx.time = t;
       ctx.cycle = tpl.looping ? Math.floor(t / tpl.duration) : 0;
@@ -116,12 +152,26 @@ export class EmitterSim {
       ctx.cycleT = ctx.cycleTime / tpl.duration;
     }
 
+    let requested = 0;
     if (playing && !tpl.eventDriven && t >= 0 && (tpl.looping || t - dt < tpl.duration)) {
       let n = 0;
-      for (const m of tpl.spawn) n += m.rt.spawn!(ctx, this.state.subarray(m.stateOffset, m.stateOffset + (m.rt.stateSize ?? 0)));
+      const spawn = tpl.spawn;
+      for (let m = 0; m < spawn.length; m++) n += spawn[m].rt.spawn!(ctx, this.#spawnStates[m]);
+      requested = n;
+      if (n > 0 && tpl.scaleSpawn && spawnScale !== 1) n = this.lodActive ? this.#scaleCount(n, spawnScale) : 0;
+      else if (!this.lodActive) n = 0;
       if (n > 0) this.#spawn(n);
     }
-    if (this.#eventCount > 0) this.#spawnEvents();
+    for (let k = 0; k < this.#eventCount; k++) requested += this.#events[k * EVENT_STRIDE + 10];
+    // ~0.5 s window: smooths bursts into a rate
+    this.demand += (requested / dt - this.demand) * Math.min(1, dt * 2);
+    if (this.#eventCount > 0) {
+      if (!this.lodActive) this.#eventCount = 0;
+      else {
+        if (tpl.scaleSpawn && spawnScale !== 1) for (let k = 0; k < this.#eventCount; k++) this.#events[k * EVENT_STRIDE + 10] = this.#scaleCount(this.#events[k * EVENT_STRIDE + 10], spawnScale);
+        this.#spawnEvents();
+      }
+    }
 
     const buf = this.buf;
     const count = buf.count;
@@ -129,15 +179,35 @@ export class EmitterSim {
 
     runModules(tpl.update, ctx, buf, 0, count);
 
-    // integrate
-    const { px, py, pz, vx, vy, vz, rot, spin, age } = buf;
+    // integrate, tracking bounds for culling on the way
+    const { px, py, pz, vx, vy, vz, rot, spin, age, size } = buf;
+    let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity, ms = 0, mv = 0;
     for (let i = 0; i < count; i++) {
-      px[i] += vx[i] * dt;
-      py[i] += vy[i] * dt;
-      pz[i] += vz[i] * dt;
+      const ux = vx[i], uy = vy[i], uz = vz[i];
+      const x = (px[i] += ux * dt);
+      const y = (py[i] += uy * dt);
+      const z = (pz[i] += uz * dt);
       rot[i] += spin[i] * dt;
       age[i] += dt;
+      // Math.min/max compile to branch-free instructions: ~1.5 ns/particle here vs ~8 ns with if-compares
+      x0 = Math.min(x0, x);
+      x1 = Math.max(x1, x);
+      y0 = Math.min(y0, y);
+      y1 = Math.max(y1, y);
+      z0 = Math.min(z0, z);
+      z1 = Math.max(z1, z);
+      ms = Math.max(ms, size[i]);
+      mv = Math.max(mv, ux * ux + uy * uy + uz * uz);
     }
+    const bb = this.bounds;
+    bb[0] = x0;
+    bb[1] = y0;
+    bb[2] = z0;
+    bb[3] = x1;
+    bb[4] = y1;
+    bb[5] = z1;
+    this.maxSize = ms;
+    this.maxSpeed2 = mv;
 
     const trails = this.trails;
     const slots = this.#trailSlot;
@@ -224,6 +294,7 @@ export class EmitterSim {
         b.size[i] *= s;
       }
     }
+    this.#trackLife(start, end);
     this.#startTrails(start, end);
     b.count = end;
     runModules(tpl.initSim, this.ctx, b, start, end);
@@ -290,6 +361,7 @@ export class EmitterSim {
         b.a[i] *= e[o + 9];
       }
     }
+    this.#trackLife(start, end);
     this.#startTrails(start, end);
     b.count = end;
     runModules(tpl.initSim, this.ctx, b, start, end);
