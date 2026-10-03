@@ -50,10 +50,10 @@ import type { SortView } from "../batch";
 import { PARTICLE_ATTRIBUTES, type Node } from "../materials/common";
 import { GpuBuildContext, LANE, LaneLayout, LaneValues, rotateQ, type FrameInfo, type GpuParticle } from "./context";
 import { getGpuModule } from "./modules";
-import { GpuSorter } from "./sort";
+import { GpuSorter, type GpuKeySort } from "./sort";
 import type { RibbonSource } from "../materials/ribbon";
 import { GpuBounds, type LaneBounds } from "./bounds";
-import { emitterRibbonSource, recordTrail, trailRibbonSource, trailStride } from "./ribbon";
+import { emitterRibbonSource, recordTrail, ribbonSort, trailRibbonSource, trailStride, type SegmentIndex } from "./ribbon";
 import "./modules";
 
 // (@types/three types atomics as AtomicFunctionNode, without the node operators)
@@ -113,6 +113,9 @@ interface Kernels {
 // ---------------------------------------------------------------------------
 
 /** Pools for some of an effect's emitters (a sub-emitter-closed group), sharing lane numbers. */
+/** Most draws one pool mesh issues for its shown lane ranges (more runs merge across the smallest hidden gaps). */
+export const MAX_RANGE_DRAWS = 8;
+
 /** A growable set halves (or more) once at most a quarter of its lanes have been in use for this long (seconds). */
 export const GPU_SHRINK_AFTER = 5;
 
@@ -122,6 +125,10 @@ export class GpuPoolSet {
   lanes: number;
   /** It never shrinks below its starting size. */
   readonly minLanes: number;
+  /** Whether draws can skip lane ranges (indirect draws with firstInstance: the "indirect-first-instance" feature). */
+  #rangeDraws = false;
+  /** Scratch: shown runs as (first lane, lane count) pairs. */
+  readonly #runs: number[] = [];
   /** World time since which occupancy has been at most a quarter (null: above). */
   #lowSince: number | null = null;
   readonly #owners: (GpuEmitter[] | null)[] = [];
@@ -234,6 +241,7 @@ export class GpuPoolSet {
    * few frames later); `now` is the world time the measurement is stamped with.
    */
   dispatch(renderer: THREE.WebGPURenderer, view: SortView | null, cull = false, now = 0): void {
+    this.#rangeDraws = (renderer as { hasFeature?: (f: string) => boolean }).hasFeature?.("indirect-first-instance") ?? false;
     this.#maybeShrink(renderer, now);
     for (const p of this.pools) p._dispatch(renderer, view, cull, now);
   }
@@ -248,21 +256,53 @@ export class GpuPoolSet {
       }
     for (const p of this.pools) {
       p.span = span;
+      // runs of shown lanes (in use, not culled); lanes are shared, so the first pool's rows decide for all
+      const runs = this.#runs;
+      runs.length = 0;
+      let hidden = false;
+      for (let l = 0; l < span; l++) {
+        const shown = !!this.#owners[l] && p.laneData[l * p.layout.width + LANE.visible] > 0;
+        if (!shown) {
+          hidden = true;
+          continue;
+        }
+        const last = runs.length - 2;
+        if (last >= 0 && runs[last] + runs[last + 1] === l) runs[last + 1]++;
+        else runs.push(l, 1);
+      }
+      // a fragmented pool would issue many small draws: merge across the smallest hidden gaps
+      // (lanes in a merged gap still draw nothing, they just cost vertex work again)
+      while (runs.length > MAX_RANGE_DRAWS * 2) {
+        let best = 0;
+        let gap = Infinity;
+        for (let r = 0; r + 2 < runs.length; r += 2) {
+          const g = runs[r + 2] - (runs[r] + runs[r + 1]);
+          if (g < gap) {
+            gap = g;
+            best = r;
+          }
+        }
+        runs[best + 1] = runs[best + 2] + runs[best + 3] - runs[best];
+        runs.splice(best + 2, 2);
+      }
       // every used lane hidden (frustum- or distance-culled): skip the draw
-      let shown = false;
-      for (let l = 0; l < span && !shown; l++) shown = !!this.#owners[l] && p.laneData[l * p.layout.width + LANE.visible] > 0;
+      const shown = runs.length > 0;
       p.meshes.forEach((m, k) => {
         m.visible = shown;
         // sorted copies hold every live particle first, so the same count covers them
         (m.geometry as THREE.InstancedBufferGeometry).instanceCount = span * p.laneCap * p.instancesPerSlot(k);
+        // culled lanes inside the span: draw only the shown runs (indirect, one record per run), so hidden
+        // lanes cost no vertex work. Sorted draws stay whole: their instances are in depth order, not lane order.
+        p._drawRanges(k, shown && hidden && this.#rangeDraws && !p.meshSorted(k) ? runs : null);
         if (matrix && p.template.space === "local") m.matrix.fromArray(matrix);
       });
     }
   }
 
+  /** GPU draws issued: one per visible mesh, or one per shown run for meshes drawn in ranges. */
   get drawCalls(): number {
     let n = 0;
-    for (const p of this.pools) for (const m of p.meshes) if (m.visible) n++;
+    for (const p of this.pools) p.meshes.forEach((m, k) => m.visible && (n += p.drawCount(k)));
     return n;
   }
 
@@ -301,6 +341,16 @@ export class GpuPool {
   /** Bounds measurement for frustum culling, created when the world first culls. */
   #bounds: GpuBounds | null = null;
   readonly #trailPoints: number;
+  /** Per mesh: indirect records for drawing lane ranges (see _drawRanges). */
+  readonly #indirect: ({
+    attr: THREE.IndirectStorageBufferAttribute;
+    lanes: number;
+    geometry: THREE.BufferGeometry;
+    runs: number[];
+    offsets: number[];
+  } | null)[] = [];
+  /** Per mesh: the segment sort of a sorted ribbon, else null (rebuilt with the ribbon materials). */
+  readonly #ribbonSorts: (GpuKeySort | null)[] = [];
   /** Ribbon meshes' materials are built per pool from its buffers; null = rebuild on the next dispatch. */
   #ribbonsStale = true;
   #attrs: THREE.StorageInstancedBufferAttribute[];
@@ -362,6 +412,64 @@ export class GpuPool {
 
   get capacity(): number {
     return this.lanes * this.laneCap;
+  }
+
+  /** Whether mesh `k` draws in depth/age order (a sorted copy or a sorted ribbon) rather than lane order. */
+  meshSorted(k: number): boolean {
+    return (this.#sortedDraw[k] && !!this.#k?.sorter) || !!this.#ribbonSorts[k];
+  }
+
+  /** GPU draws mesh `k` issues: its shown runs when drawn in ranges, else one. */
+  drawCount(k: number): number {
+    const g = this.meshes[k].geometry;
+    return g.indirect ? (g.indirectOffset as number[]).length : 1;
+  }
+
+  /**
+   * @internal Draws mesh `k` as the given runs of lanes ((first, count)
+   * pairs) with one indexed/non-indexed indirect record each, or whole
+   * (null). Records are rewritten only when the runs change.
+   */
+  _drawRanges(k: number, runs: readonly number[] | null): void {
+    const g = this.meshes[k].geometry as THREE.InstancedBufferGeometry;
+    if (!runs) {
+      if (g.indirect) g.setIndirect(null as unknown as THREE.IndirectStorageBufferAttribute, 0);
+      return;
+    }
+    const per = this.laneCap * this.instancesPerSlot(k);
+    const indexed = !!g.index;
+    const stride = indexed ? 5 : 4;
+    const count = indexed ? g.index!.count : g.getAttribute("position").count;
+    let d = this.#indirect[k];
+    if (!d || d.lanes !== this.lanes || d.geometry !== g) {
+      // one record per possible run (at most every other lane)
+      const attr = new THREE.IndirectStorageBufferAttribute(new Uint32Array(Math.ceil(this.lanes / 2) * stride), 1);
+      d = this.#indirect[k] = { attr, lanes: this.lanes, geometry: g, runs: [], offsets: [] };
+    }
+    const same = d.runs.length === runs.length && d.runs.every((v, i) => v === runs[i]);
+    if (!same) {
+      const a = d.attr.array as Uint32Array;
+      d.offsets = [];
+      for (let r = 0; r < runs.length; r += 2) {
+        const o = (r / 2) * stride;
+        a[o] = count; // index (or vertex) count
+        a[o + 1] = runs[r + 1] * per; // instances
+        a[o + 2] = 0; // first index (or vertex)
+        if (indexed) {
+          a[o + 3] = 0; // base vertex
+          a[o + 4] = runs[r] * per; // first instance
+        } else a[o + 3] = runs[r] * per;
+        d.offsets.push(o * 4);
+      }
+      d.runs = runs.slice();
+      d.attr.needsUpdate = true;
+    }
+    if (g.indirect !== d.attr || g.indirectOffset !== d.offsets) g.setIndirect(d.attr, d.offsets);
+  }
+
+  /** Mesh `k`'s segment sort when it is a sorted ribbon (built on the first dispatch). */
+  ribbonSort(k: number): GpuKeySort | null {
+    return this.#ribbonSorts[k] ?? null;
   }
 
   /** The sorter, once kernels are built (null when no renderer sorts). */
@@ -928,6 +1036,7 @@ export class GpuPool {
       }
     if (span > 0) renderer.compute(k.update, span * this.laneCap);
     k.sorter?.run(renderer, view);
+    if (span > 0) this.#sortRibbons(renderer, view);
     if (cull && span > 0) this.#measure(renderer, span, now);
 
     if (this.#clearPending) {
@@ -969,13 +1078,36 @@ export class GpuPool {
       const d = this.#meshDraws[k];
       if (!d.ribbon) return;
       const r = d.renderer as RibbonRendererDoc;
-      const source =
-        r.mode === "particle" && this.#trail
-          ? trailRibbonSource(buffers, this.#trail, this.#trailPoints, r)
-          : emitterRibbonSource(buffers, () => this.#ctrlBuffer(), this.#ctrlLen(), this.#lanesAt(), r);
+      const trail = r.mode === "particle" ? this.#trail : null;
+      const sourceFor = (seg?: SegmentIndex) =>
+        trail
+          ? trailRibbonSource(buffers, trail, this.#trailPoints, r, seg)
+          : emitterRibbonSource(buffers, () => this.#ctrlBuffer(), this.#ctrlLen(), this.#lanesAt(), r, seg);
+      this.#ribbonSorts[k]?.dispose();
+      this.#ribbonSorts[k] = null;
+      let source = sourceFor();
+      if (r.sort && r.sort !== "none") {
+        // segments drawn through a GPU-sorted order buffer
+        const sorted = ribbonSort(sourceFor, this.capacity * (trail ? this.#trailPoints : 1), r, buffers);
+        this.#ribbonSorts[k] = sorted.sort;
+        source = sorted.source;
+      }
       const old = mesh.material as THREE.Material;
       mesh.material = d.ribbon(source);
       old.dispose();
+    });
+  }
+
+  /** Sorts the sorted ribbons' segments (distance needs the camera; without it the last order stands). */
+  #sortRibbons(renderer: THREE.WebGPURenderer, view: SortView | null): void {
+    this.#ribbonSorts.forEach((sort, k) => {
+      if (!sort) return;
+      const r = this.#meshDraws[k].renderer;
+      if (r.sort === "distance") {
+        if (!view) return;
+        sort.setView(view);
+      }
+      renderer.compute(sort.kernels);
     });
   }
 
@@ -991,6 +1123,7 @@ export class GpuPool {
 
   dispose(): void {
     this.#disposeKernels();
+    for (const s of this.#ribbonSorts) s?.dispose();
     this.#bounds?.dispose();
     this.#bounds = null;
     this.meshes.forEach((m, k) => {

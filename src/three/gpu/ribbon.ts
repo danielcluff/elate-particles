@@ -9,12 +9,13 @@
 // - mode "emitter": one strip per lane through its particles in spawn order,
 //   which on the GPU is ring order (slot i → i + 1) up to the newest slot.
 
-import { If, Loop, float, instanceIndex, length, max, min, normalize, select, storage, uint, vec3, vec4 } from "three/tsl";
+import { If, Loop, bool, float, instanceIndex, length, max, min, normalize, select, storage, uint, vec3, vec4 } from "three/tsl";
 import type * as THREE from "three/webgpu";
 import type { RibbonRendererDoc } from "../../core/types";
 import type { Node } from "../materials/common";
 import type { RibbonEndpoint, RibbonSource } from "../materials/ribbon";
-import type { LaneValues } from "./context";
+import { rotateQ, type LaneValues } from "./context";
+import { GpuKeySort, SORT_DEAD, sortKey } from "./sort";
 
 /** vec4s per slot in a trail buffer: meta (head, count, live, skip newest) then the ring of points (xyz, time). */
 export const trailStride = (points: number): number => points + 1;
@@ -39,14 +40,26 @@ function tangent(prev: Node, next: Node): Node {
 }
 
 /** Per-particle trails (ribbon mode "particle"): instance = slot × points + segment. */
-export function trailRibbonSource(b: GpuRibbonBuffers, trail: THREE.StorageBufferAttribute, points: number, r: RibbonRendererDoc): RibbonSource {
+/** Which segment a vertex (or key-kernel thread) works on: the instance index, or a sorted order lookup. */
+export type SegmentIndex = () => Node;
+const bySegmentInstance: SegmentIndex = () => instanceIndex;
+
+export function trailRibbonSource(
+  b: GpuRibbonBuffers,
+  trail: THREE.StorageBufferAttribute,
+  points: number,
+  r: RibbonRendererDoc,
+  segment: SegmentIndex = bySegmentInstance,
+): RibbonSource {
+  // one storage node per buffer, shared by both ends (the sort's key kernel evaluates both: a node per call would bind twice)
+  const [A, B, C, D] = particleBuffers(b);
+  const stride = trailStride(points);
+  const T = storage(trail, "vec4", b.capacity * stride).toReadOnly();
   return (end): RibbonEndpoint => {
-    const [A, B, C, D] = particleBuffers(b);
-    const stride = trailStride(points);
-    const T = storage(trail, "vec4", b.capacity * stride).toReadOnly();
     const P = uint(points);
-    const slot: Node = instanceIndex.div(P).toVar();
-    const s: Node = instanceIndex.mod(P);
+    const seg: Node = segment().toVar();
+    const slot: Node = seg.div(P).toVar();
+    const s: Node = seg.mod(P);
     const a: Node = A.element(slot).toVar();
     const c: Node = C.element(slot).toVar();
     const base: Node = slot.mul(stride).toVar();
@@ -90,14 +103,23 @@ export function trailRibbonSource(b: GpuRibbonBuffers, trail: THREE.StorageBuffe
 }
 
 /** One strip per lane through its particles in spawn (ring) order (ribbon mode "emitter"): instance = slot. */
-export function emitterRibbonSource(b: GpuRibbonBuffers, ctrl: () => THREE.StorageBufferAttribute, ctrlLen: number, lanesAt: number, r: RibbonRendererDoc): RibbonSource {
+export function emitterRibbonSource(
+  b: GpuRibbonBuffers,
+  ctrl: () => THREE.StorageBufferAttribute,
+  ctrlLen: number,
+  lanesAt: number,
+  r: RibbonRendererDoc,
+  segment: SegmentIndex = bySegmentInstance,
+): RibbonSource {
+  const [A, B, C, D] = particleBuffers(b);
+  const ctrlNode = storage(ctrl(), "uint", ctrlLen).toReadOnly();
   return (end): RibbonEndpoint => {
-    const [A, B, C, D] = particleBuffers(b);
     const L = uint(b.laneCap);
-    const lane: Node = instanceIndex.div(L).toVar();
+    const seg: Node = segment().toVar();
+    const lane: Node = seg.div(L).toVar();
     const laneBase: Node = lane.mul(L).toVar();
-    const i: Node = instanceIndex.mod(L).toVar();
-    const head: Node = storage(ctrl(), "uint", ctrlLen).toReadOnly().element(lane.mul(2).add(lanesAt));
+    const i: Node = seg.mod(L).toVar();
+    const head: Node = ctrlNode.element(lane.mul(2).add(lanesAt));
     // the newest slot: one before the ring head (which may run past laneCap until the next prep)
     const newest: Node = head.add(L).sub(1).mod(L).toVar();
     const alive = (k: Node): Node => A.element(laneBase.add(k)).w.lessThan(1).and(C.element(laneBase.add(k)).x.greaterThan(0));
@@ -179,4 +201,38 @@ export function recordTrail(
   });
   meta.z.assign(live);
   T.element(base).assign(meta);
+}
+
+/**
+ * Sorted ribbons: a key per segment from the same endpoint code the vertex
+ * shader runs (midpoint view depth, or the segment's age for the age modes),
+ * sorted into an order buffer; the sorted material reads its segment through
+ * it. Invalid segments sort to the end, and live segments never outnumber
+ * the drawn instance count, so the draw needs no other change.
+ *
+ * @param source builds the endpoint source for a segment index
+ * @param segments segments per pool (slots × points for trails, slots for strips)
+ */
+export function ribbonSort(
+  source: (segment: SegmentIndex) => RibbonSource,
+  segments: number,
+  r: RibbonRendererDoc,
+  b: GpuRibbonBuffers,
+): { sort: GpuKeySort; source: RibbonSource } {
+  const mode = r.sort && r.sort !== "none" ? r.sort : "distance";
+  const sort = new GpuKeySort(segments, (i, camera) => {
+    const src = source(() => i);
+    const e0 = src(bool(false));
+    const e1 = src(bool(true));
+    let mid: Node = e0.A.xyz.add(e1.A.xyz).mul(0.5);
+    // local-space pools are single-lane and drawn with the instance's matrix: move the midpoint to world space
+    if (b.local) {
+      const u = b.lane(uint(0));
+      mid = rotateQ(u.rotation, mid.mul(u.scale)).add(u.position);
+    }
+    return select(e0.C.x.greaterThan(0), sortKey(mode, camera, mid, e0.A.w.mul(e0.C.z)), float(SORT_DEAD));
+  });
+  const order = sort.order;
+  const n = sort.size;
+  return { sort, source: source(() => storage(order, "uint", n).toReadOnly().element(instanceIndex)) };
 }

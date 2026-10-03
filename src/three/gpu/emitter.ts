@@ -8,7 +8,7 @@ import { getGpuModule } from "./modules";
 import { MAX_GPU_TARGETS } from "./pool";
 import "./modules";
 
-export { GpuEmitter, GpuPool, GpuPoolSet, GPU_SHRINK_AFTER, MAX_GPU_TARGETS, type GpuDraw } from "./pool";
+export { GpuEmitter, GpuPool, GpuPoolSet, GPU_SHRINK_AFTER, MAX_GPU_TARGETS, MAX_RANGE_DRAWS, type GpuDraw } from "./pool";
 
 /** Reasons `tpl` can't be simulated on the GPU (empty = supported). */
 export function gpuSupport(tpl: EmitterTemplate, doc: EffectDoc): string[] {
@@ -16,7 +16,6 @@ export function gpuSupport(tpl: EmitterTemplate, doc: EffectDoc): string[] {
   // sub-emitters work when both ends run on the GPU (ParticleWorld checks partners, see gpuPartners)
   if (new Set([...tpl.birth, ...tpl.death].map((s) => s.target)).size > MAX_GPU_TARGETS) why.add(`more than ${MAX_GPU_TARGETS} sub-emitter targets`);
   if (tpl.eventDriven && !doc.emitters.some((e) => e.subEmitters?.some((s) => s.emitter === tpl.id))) why.add("event-driven without a sub-emitter source");
-  for (const r of tpl.renderers) if (r.type === "ribbon" && r.sort && r.sort !== "none") why.add("sorted ribbons");
   for (const m of [...tpl.initLocal, ...tpl.initSim, ...tpl.update]) {
     const impl = getGpuModule(m.def.type);
     if (!impl) {

@@ -172,7 +172,7 @@ const world = new ParticleWorld({ renderer }); // the WebGPURenderer, needed to 
   effect finishes. Distance culling and LOD apply through the effect's position; frustum culling uses bounds read
   back from the GPU (below).
 - **Falls back to the CPU** (one warning listing the reasons) for: no `renderer` option, the WebGL fallback backend,
-  sorted ribbons, modules without a GPU implementation, more than 3 sub-emitter targets, or a sub-emitter partner
+  modules without a GPU implementation, more than 3 sub-emitter targets, or a sub-emitter partner
   (source or target) that stays on the CPU. Events don't cross between the two simulators, so
   partners move together. `sim: "gpu"` is always safe to set.
 
@@ -249,8 +249,23 @@ materials, rebuilt when the pool grows. Invalid segments get zero width at the o
     is no running distance along the strip. A dead particle in the middle breaks the strip rather than being
     bridged.
   - A browser check against the same effect on the CPU, moving in a circle, gave the same arc.
-- **Not supported:** sorted ribbons (falls back to the CPU). Storage reads in the vertex stage need
-  `maxStorageBuffersInVertexStage` ≥ 6 (8 on core WebGPU; compatibility-mode devices may have 0).
+- **Sorted ribbons** (`sort: "distance"`, `"oldestOnTop"`, `"newestOnTop"`) sort segments, not particles.
+  1. A key kernel runs the same endpoint code the vertex shader does, for both ends of every segment. The sources
+     take the segment index as a parameter, so the same code serves both. The key is the negative view depth of the
+     midpoint (like the CPU's sort on the segment's two endpoints), or the segment's age for the age modes. Invalid
+     segments get a key that sorts last.
+  2. `GpuKeySort`, the bitonic sort factored out of `GpuSorter`, orders the segment indices.
+  3. The sorted material reads its segment as `order[instanceIndex]`. Live segments sort first and never outnumber
+     the drawn instances, so nothing else changes.
+  - **Cost:** a pool sorts `capacity × points` keys for trails (`capacity` for strips), rounded up to a power of
+    two. A 512-particle, 20-point trail emitter at 4 lanes sorts 65,536 keys in 136 passes, all in one compute call.
+  - **Checked on real WebGPU:** two sorted comet strips gave 284 live segments, keys in order, each key equal to the
+    segment's midpoint depth recomputed on the CPU, and the two instances interleaved by depth (163 switches). A
+    sorted trail volley came back in order too.
+  - **Buffer limit:** the key kernel evaluates both ends, so each source creates its storage nodes once, outside the
+    per-end function. Otherwise the second end binds every buffer again, 9 storage buffers in all.
+- **Device requirements:** storage reads in the vertex stage need `maxStorageBuffersInVertexStage` ≥ 6, or 7 for
+  sorted ribbons. Core WebGPU has 8; compatibility-mode devices may have 0.
 - **A TSL pitfall found here:** `select(cond, a, b)` over `toVar()` nodes compiles to an if/else, and the vars'
   first assignments land inside the branches, so one branch reads them unset. Build such values arithmetically (the
   endpoint index is `i + select(end, 1, 0)`, not `select(end, i + 1, i)`).
@@ -295,6 +310,17 @@ The CPU can't see GPU particles, so each pool measures them:
 4. **Act.** A culled instance counts in `culledInstances`. From the next frame its lane hides on the GPU (the same
    negative-size flag as distance culling). A pool whose used lanes are all hidden skips its draw. Looping effects
    with `pauseOffscreen` stop stepping (their lane gets dt 0).
+5. **Skip their vertex work.** With hidden lanes inside the used span, a pool mesh draws only the runs of shown
+   lanes: one indirect record per run, `firstInstance` = first lane × instances per lane (slots, or slots × history
+   points for trails). Lanes are contiguous instance ranges, and `instance_index` and instanced attributes both
+   include `firstInstance`, so shaders don't change.
+   - The runs are computed on the CPU from the lane rows, and records are rewritten only when they change.
+   - At most `MAX_RANGE_DRAWS` (8) draws per mesh: more runs merge across the smallest hidden gaps.
+   - Needs the `indirect-first-instance` feature, which three requests when the adapter has it. Without it, or with
+     nothing hidden, or for sorted draws (depth order, not lane order), the mesh draws whole as before.
+   - Distance-culled instances benefit the same way.
+   - Checked on real WebGPU: a row of 24 torches alternating shown and culled drew as 8 merged ranges, and a 400 ×
+     300 render matched the whole draw pixel for pixel.
 
 Checked in the browser:
 - A torch's cull box contained its real particle extent with about 0.15 units of margin per side.
@@ -578,9 +604,10 @@ else is ~15–20 ns per particle.
 
 **Known gaps:** none from the original list. All six runtime gaps (renderers, sorting, soft particles, budget/LOD,
 multiple renderers, GPU and worker simulation) are closed, and GPU emitters now cover sub-emitters, sorting,
-curves over age, batching across instances, ribbons, sort groups, frustum culling and pools that shrink after a peak.
-Candidates next: sorted GPU ribbons, skipping culled lanes' vertex work (indirect draws per lane range), and
-per-particle lights.
+curves over age, batching across instances, ribbons (sorted too), sort groups, frustum culling and pools that shrink
+after a peak.
+Every renderer feature now runs on the GPU too, and culled GPU instances cost neither simulation (with
+`pauseOffscreen`) nor vertex work. Candidates next: per-particle lights, and an effect-editor pass (Phase 2).
 
 ### three.js and framework compatibility
 

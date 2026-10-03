@@ -1,7 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import * as THREE from "three/webgpu";
-import { EffectSim, compileEffect, createEffect, createEmitter, createModule, validateEffect, type EffectDoc, type GpuSpawnTarget } from "../src/index";
+import { EffectSim, compileEffect, createEffect, createEmitter, createModule, registerModule, validateEffect, type EffectDoc, type GpuSpawnTarget } from "../src/index";
 import { GpuEmitter, GpuPool, ParticleWorld, gpuSupport } from "../src/three";
+
+// a CPU-only update module (no GPU implementation registered): the remaining reason a GPU emitter falls back
+registerModule({
+  type: "update.testCpuOnly",
+  stage: "update",
+  label: "CPU only",
+  category: "Test",
+  description: "",
+  params: [],
+  compile: () => ({ run() {} }),
+});
 
 function gpuDoc(mut?: (doc: EffectDoc) => void): EffectDoc {
   const doc = createEffect("g", { emitter: false });
@@ -92,10 +103,8 @@ describe("GPU support checks", () => {
   });
 
   it("explains what keeps an emitter on the CPU", () => {
-    const doc = gpuDoc((d) => {
-      d.emitters[0].renderers = [{ type: "ribbon", blend: "additive", shape: "glow", facing: "camera", uvMode: "stretch", sort: "distance" }];
-    });
-    expect(gpuSupport(compileEffect(doc).emitters[0], doc).join("\n")).toMatch(/sorted ribbons/);
+    const doc = gpuDoc((d) => void d.emitters[0].update.push(createModule("update.testCpuOnly", {})));
+    expect(gpuSupport(compileEffect(doc).emitters[0], doc).join("\n")).toMatch(/CPU only has no GPU implementation/);
   });
 
   it("accepts curves over particle age, sorting and sub-emitters", () => {
@@ -129,10 +138,6 @@ describe("GPU support checks", () => {
       d.emitters[0].maxParticles = 500_000;
     });
     expect(validateEffect(doc)).toEqual([]);
-    const bad = gpuDoc((d) => {
-      d.emitters[0].renderers[0] = { type: "ribbon", blend: "additive", shape: "glow", facing: "camera", uvMode: "stretch", sort: "distance" };
-    });
-    expect(validateEffect(bad).some((i) => i.message.includes("GPU simulation doesn't support sorted ribbons"))).toBe(true);
     const mixed = eventDoc((d) => {
       d.emitters[1].sim = "cpu";
     });
@@ -297,7 +302,7 @@ describe("GPU sub-emitters", () => {
     const w = new ParticleWorld({ renderer: fakeRenderer() });
     const h = w.spawn(
       eventDoc((d) => {
-        d.emitters[1].renderers = [{ type: "ribbon", blend: "additive", shape: "glow", facing: "camera", uvMode: "stretch", sort: "distance" }];
+        d.emitters[1].update.push(createModule("update.testCpuOnly", {}));
       }),
     );
     expect(h.sim!.emitters.map((e) => e.gpu)).toEqual([null, null]);
@@ -704,5 +709,152 @@ describe("GPU pool shrinking", () => {
     expect(pool.lanes).toBe(8);
     expect(new Set([hs[0], ...more].map((h) => laneOf(h).lane)).size).toBe(7);
     w.update(1 / 60);
+  });
+});
+
+describe("GPU sorted ribbons", () => {
+  const sortedRibbon = (mode: "particle" | "emitter", sort: "distance" | "oldestOnTop" = "distance") => ({
+    type: "ribbon" as const,
+    mode,
+    sort,
+    trail: { points: 8, minDistance: 0.1, lifetime: 0.5 },
+    blend: "alpha" as const,
+    shape: "softCircle" as const,
+    facing: "camera" as const,
+    uvMode: "stretch" as const,
+  });
+  const batches = (r: { calls: Call[] }) => r.calls.filter((c) => c.batch).map((c) => c.batch);
+
+  it("validates and stays on the GPU", () => {
+    const doc = gpuDoc((d) => void (d.emitters[0].renderers = [sortedRibbon("particle")]));
+    expect(validateEffect(doc)).toEqual([]);
+    expect(gpuSupport(compileEffect(doc).emitters[0], doc)).toEqual([]);
+  });
+
+  it("sorts trail segments (slots × points) in one batched call per frame", () => {
+    const r = fakeRenderer();
+    const w = new ParticleWorld({ renderer: r });
+    w.spawn(gpuDoc((d) => void (d.emitters[0].renderers = [sortedRibbon("particle")])));
+    w.update(1 / 60, new THREE.PerspectiveCamera());
+    // 4 lanes × 1000 slots × 8 points = 32000 segments → 32768 keys: key kernel + 15·16/2 passes
+    expect(batches(r)).toContain(1 + 120);
+  });
+
+  it("sorts strip segments (one per slot)", () => {
+    const r = fakeRenderer();
+    const w = new ParticleWorld({ renderer: r });
+    w.spawn(gpuDoc((d) => void (d.emitters[0].renderers = [sortedRibbon("emitter")])));
+    w.update(1 / 60, new THREE.PerspectiveCamera());
+    expect(batches(r)).toContain(1 + 78); // 4000 → 4096 keys
+  });
+
+  it("distance sorting waits for a camera; age sorting doesn't", () => {
+    const r = fakeRenderer();
+    const w = new ParticleWorld({ renderer: r });
+    w.spawn(gpuDoc((d) => void (d.emitters[0].renderers = [sortedRibbon("emitter")])));
+    w.update(1 / 60);
+    expect(batches(r).filter((b) => b! > 5)).toEqual([]);
+    const r2 = fakeRenderer();
+    const w2 = new ParticleWorld({ renderer: r2 });
+    w2.spawn(gpuDoc((d) => void (d.emitters[0].renderers = [sortedRibbon("emitter", "oldestOnTop")])));
+    w2.update(1 / 60);
+    expect(batches(r2)).toContain(1 + 78);
+  });
+});
+
+describe("GPU draws skip culled lanes", () => {
+  const featured = () => {
+    const r = fakeRenderer();
+    (r as unknown as { hasFeature: (f: string) => boolean }).hasFeature = (f) => f === "indirect-first-instance";
+    return r;
+  };
+  // lanes 0..2 near, far, near: the far one is distance-culled
+  const setup = (renderer: THREE.WebGPURenderer, mut?: (d: EffectDoc) => void) => {
+    const w = new ParticleWorld({ renderer });
+    const doc = gpuDoc((d) => {
+      d.scalability = { cullDistance: 50 };
+      mut?.(d);
+    });
+    const hs = [0, 500, 0].map((x) => w.spawn(doc, { autoRelease: false, position: { x, y: 0, z: -5 } }));
+    const cam = new THREE.PerspectiveCamera();
+    w.update(1 / 60, cam);
+    w.update(1 / 60, cam); // lane flags follow a frame later
+    return { w, cam, hs, pool: (hs[0].sim!.emitters[0].gpu as GpuEmitter).pool };
+  };
+
+  it("draws the shown runs with one indirect record each (first instance = first lane × lane size)", () => {
+    const { w, pool } = setup(featured());
+    const g = pool.meshes[0].geometry;
+    expect(g.indirect).not.toBeNull();
+    expect(g.indirectOffset).toEqual([0, 20]);
+    // indexed quad: [index count, instances, first index, base vertex, first instance]
+    expect([...(g.indirect!.array as Uint32Array).slice(0, 10)]).toEqual([6, 1000, 0, 0, 0, 6, 1000, 0, 0, 2000]);
+    expect(w.stats.drawCalls).toBe(2);
+  });
+
+  it("rewrites records only when the runs change, and draws whole again when nothing is hidden", () => {
+    const { w, cam, hs, pool } = setup(featured());
+    const g = pool.meshes[0].geometry;
+    const version = g.indirect!.version;
+    w.update(1 / 60, cam);
+    expect(g.indirect!.version).toBe(version);
+    hs[1].setPosition(0, 0, -5); // back in range
+    w.update(1 / 60, cam);
+    w.update(1 / 60, cam);
+    expect(pool.meshes[0].geometry.indirect).toBeNull();
+    expect(w.stats.drawCalls).toBe(1);
+  });
+
+  it("without indirect-first-instance, draws whole (hidden lanes still cost vertex work, as before)", () => {
+    const { w, pool } = setup(fakeRenderer());
+    expect(pool.meshes[0].geometry.indirect).toBeNull();
+    expect(w.stats.drawCalls).toBe(1);
+  });
+
+  it("sorted draws stay whole: their instances are in depth order, not lane order", () => {
+    const { pool } = setup(featured(), (d) => {
+      d.emitters[0].renderers = [
+        { type: "sprite", blend: "alpha", shape: "softCircle", facing: "camera", sort: "distance" },
+        { type: "sprite", blend: "additive", shape: "glow", facing: "camera" },
+      ];
+    });
+    expect(pool.meshes[0].geometry.indirect).toBeNull();
+    expect(pool.meshes[1].geometry.indirect).not.toBeNull();
+  });
+
+  it("trail ribbons skip whole lanes of segments", () => {
+    const { pool } = setup(featured(), (d) => {
+      d.emitters[0].renderers = [{ type: "ribbon", mode: "particle", trail: { points: 8, minDistance: 0.1, lifetime: 0.5 }, blend: "additive", shape: "glow", facing: "camera", uvMode: "stretch" }];
+    });
+    const a = pool.meshes[0].geometry.indirect!.array as Uint32Array;
+    expect([a[1], a[4], a[6], a[9]]).toEqual([8000, 0, 8000, 16000]);
+  });
+});
+
+describe("GPU lane-range draws: fragmentation", () => {
+  it("caps the draws per mesh, merging across the smallest hidden gaps", () => {
+    const r = fakeRenderer();
+    (r as unknown as { hasFeature: (f: string) => boolean }).hasFeature = (f) => f === "indirect-first-instance";
+    const w = new ParticleWorld({ renderer: r });
+    const doc = gpuDoc((d) => void (d.scalability = { cullDistance: 50 }));
+    // 24 lanes alternating near/far: 12 runs of one lane before merging
+    const hs = Array.from({ length: 24 }, (_, i) => w.spawn(doc, { autoRelease: false, position: { x: i % 2 ? 500 : 0, y: 0, z: -5 } }));
+    const cam = new THREE.PerspectiveCamera();
+    w.update(1 / 60, cam);
+    w.update(1 / 60, cam);
+    const g = (hs[0].sim!.emitters[0].gpu as GpuEmitter).pool.meshes[0].geometry;
+    expect((g.indirectOffset as number[]).length).toBe(8);
+    // the runs still cover every shown lane, in order, without overlap
+    const a = g.indirect!.array as Uint32Array;
+    let covered = 0;
+    let end = 0;
+    for (let k = 0; k < 8; k++) {
+      const first = a[k * 5 + 4] / 1000, n = a[k * 5 + 1] / 1000;
+      expect(first).toBeGreaterThanOrEqual(end);
+      for (let l = first; l < first + n; l++) if (l % 2 === 0) covered++;
+      end = first + n;
+    }
+    expect(covered).toBe(12);
+    expect(w.stats.drawCalls).toBe(8);
   });
 });
