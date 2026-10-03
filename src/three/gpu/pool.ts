@@ -113,10 +113,17 @@ interface Kernels {
 // ---------------------------------------------------------------------------
 
 /** Pools for some of an effect's emitters (a sub-emitter-closed group), sharing lane numbers. */
+/** A growable set halves (or more) once at most a quarter of its lanes have been in use for this long (seconds). */
+export const GPU_SHRINK_AFTER = 5;
+
 export class GpuPoolSet {
   readonly pools: GpuPool[];
   readonly growable: boolean;
   lanes: number;
+  /** It never shrinks below its starting size. */
+  readonly minLanes: number;
+  /** World time since which occupancy has been at most a quarter (null: above). */
+  #lowSince: number | null = null;
   readonly #owners: (GpuEmitter[] | null)[] = [];
   readonly #free: number[] = [];
 
@@ -128,6 +135,7 @@ export class GpuPoolSet {
   constructor(templates: EmitterTemplate[], indices: number[], draws: (GpuDraw[] | null)[], parent: THREE.Object3D, lanes: number, growable: boolean) {
     this.growable = growable;
     this.lanes = lanes;
+    this.minLanes = lanes;
     this.pools = indices.map((i) => new GpuPool(templates[i], draws[i] ?? [], lanes, parent));
     const byIndex: GpuPool[] = [];
     for (const p of this.pools) byIndex[p.template.index] = p;
@@ -183,11 +191,50 @@ export class GpuPoolSet {
   }
 
   /**
+   * Shrinks after a quiet spell: at most a quarter of the lanes in use for
+   * GPU_SHRINK_AFTER seconds. Live lanes above the new size are moved into
+   * free lanes below it first (in every pool: lane numbers are shared). The
+   * new size keeps room to double the current use before growing again, so
+   * growth (when full) and shrinking (at a quarter) can't chase each other.
+   */
+  #maybeShrink(renderer: THREE.WebGPURenderer, now: number): void {
+    if (!this.growable || this.lanes <= this.minLanes) return;
+    const used = this.inUse;
+    if (used * 4 > this.lanes) {
+      this.#lowSince = null;
+      return;
+    }
+    this.#lowSince ??= now;
+    if (now - this.#lowSince < GPU_SHRINK_AFTER) return;
+    this.#lowSince = null;
+    let target = this.minLanes;
+    while (target < used * 2) target *= 2;
+    if (target >= this.lanes) return;
+    // compaction: every live lane at or above the target into a free lane below it
+    const free = this.#free.filter((l) => l < target).sort((a, b) => a - b);
+    const moves: [number, number][] = [];
+    for (let l = target; l < this.lanes; l++) if (this.#owners[l]) moves.push([l, free.shift()!]);
+    if (moves.length) for (const p of this.pools) p._moveLanes(renderer, moves);
+    for (const [a, b] of moves) {
+      const list = this.#owners[a]!;
+      for (const g of list) g.lane = b;
+      this.#owners[b] = list;
+      this.#owners[a] = null;
+    }
+    this.lanes = target;
+    for (const p of this.pools) p._resize(target);
+    this.#owners.length = target;
+    this.#free.length = 0;
+    for (let l = target - 1; l >= 0; l--) if (!this.#owners[l]) this.#free.push(l);
+  }
+
+  /**
    * Runs this frame's kernels for every pool (emitter order). With `cull`,
    * pools also measure their lanes' bounds for frustum culling (read back a
    * few frames later); `now` is the world time the measurement is stamped with.
    */
   dispatch(renderer: THREE.WebGPURenderer, view: SortView | null, cull = false, now = 0): void {
+    this.#maybeShrink(renderer, now);
     for (const p of this.pools) p._dispatch(renderer, view, cull, now);
   }
 
@@ -249,6 +296,8 @@ export class GpuPool {
   readonly #sortedDraw: boolean[];
   /** Per-particle trail rings (ribbon mode "particle"), else null. */
   #trail: THREE.StorageBufferAttribute | null = null;
+  /** The lane-move kernel (compaction), built on first use for the current buffers. */
+  #move: { kernel: Node; from: Node; to: Node } | null = null;
   /** Bounds measurement for frustum culling, created when the world first culls. */
   #bounds: GpuBounds | null = null;
   readonly #trailPoints: number;
@@ -425,8 +474,9 @@ export class GpuPool {
       this.#trail = this.#newTrail();
     }
     const data = new Float32Array(this.layout.width * lanes);
-    data.set(this.laneData);
+    data.set(this.laneData.subarray(0, data.length));
     this.laneData = data;
+    this.#owners.length = Math.min(this.#owners.length, lanes);
     this.#laneTex.dispose();
     this.#laneTex = this.#newLaneTex();
     this.#disposeKernels();
@@ -434,6 +484,48 @@ export class GpuPool {
     this.#bounds = null;
     this.#setGeometries();
     for (let l = oldCount / this.laneCap; l < lanes; l++) this.clearLane(l);
+  }
+
+  /**
+   * @internal Compaction before a shrink: moves lanes' particles, ring
+   * counters and trails (GPU) and rows and owners (CPU) from each `from` to
+   * its `to` (a free lane). Runs on the current buffers, before _resize.
+   */
+  _moveLanes(renderer: THREE.WebGPURenderer, moves: [number, number][]): void {
+    const L = this.laneCap;
+    const W = this.layout.width;
+    const cap = this.capacity;
+    const lanesAt = this.#lanesAt();
+    this.#move ??= (() => {
+      const from = uintUniform(0);
+      const to = uintUniform(0);
+      const bufs = this.#attrs.map((a) => storage(a, "vec4", cap));
+      const stride = trailStride(this.#trailPoints);
+      const T = this.#trail ? storage(this.#trail, "vec4", cap * stride) : null;
+      const kernel = Fn(() => {
+        const j = instanceIndex;
+        const src: Node = from.mul(L).add(j).toVar();
+        const dst: Node = to.mul(L).add(j).toVar();
+        for (const B of bufs) B.element(dst).assign(B.element(src));
+        if (T) for (let k = 0; k < stride; k++) T.element(dst.mul(stride).add(k)).assign(T.element(src.mul(stride).add(k)));
+        If(j.equal(0), () => {
+          const ctrl = this.#ctrlNode();
+          for (let k = 0; k < 2; k++) atomicStore(ctrl.element(to.mul(2).add(lanesAt + k)), atomicLoad(ctrl.element(from.mul(2).add(lanesAt + k))));
+        });
+      })().compute(L);
+      return { kernel, from, to };
+    })();
+    const m = this.#move;
+    for (const [a, b] of moves) {
+      // one dispatch per move: the uniforms change between them (each compute() call is its own submit)
+      m.from.value = a;
+      m.to.value = b;
+      renderer.compute(m.kernel);
+      this.laneData.copyWithin(b * W, a * W, a * W + W);
+      this.laneData[a * W + LANE.clear] = 0;
+      this.#owners[b] = this.#owners[a];
+      this.#owners[a] = null;
+    }
   }
 
   // ---- sub-emitters ------------------------------------------------------------
@@ -636,6 +728,10 @@ export class GpuPool {
           Return();
         });
         const lane: Node = atomicLoad(ctrl.element(o)).toVar();
+        // events for a lane compaction moved away (from beyond the shrunk pool): dropped
+        If(lane.greaterThanEqual(laneCount), () => {
+          Return();
+        });
         const slot: Node = lane.mul(L).add(atomicLoad(ctrl.element(o.add(1))).add(j).mod(uint(L)));
         const e0: Node = vec3(get(2), get(3), get(4)).toVar();
         const e1: Node = vec3(get(6), get(7), get(8)).toVar();
@@ -749,30 +845,33 @@ export class GpuPool {
   #copyOld(renderer: THREE.WebGPURenderer): void {
     const old = this.#old!;
     this.#old = null;
-    const n = old.count;
+    // growing copies everything; shrinking only the lanes that remain (compaction moved live ones down first)
+    const n = Math.min(old.count, this.capacity);
     const copy = Fn(() => {
       const i = instanceIndex;
-      for (let c = 0; c < 4; c++) storage(this.#attrs[c], "vec4", this.capacity).element(i).assign(storage(old.attrs[c], "vec4", n).element(i));
+      for (let c = 0; c < 4; c++) storage(this.#attrs[c], "vec4", this.capacity).element(i).assign(storage(old.attrs[c], "vec4", old.count).element(i));
     })().compute(n);
     const kernels = [copy];
     if (old.ctrl) {
-      const len = old.ctrlLen;
+      const srcLen = old.ctrlLen;
+      const len = Math.min(srcLen, this.#ctrlLen());
       const src = old.ctrl;
       kernels.push(
         Fn(() => {
           const i = instanceIndex;
-          storage(this.#ctrlBuffer(), "uint", this.#ctrlLen()).element(i).assign(storage(src, "uint", len).element(i));
+          storage(this.#ctrlBuffer(), "uint", this.#ctrlLen()).element(i).assign(storage(src, "uint", srcLen).element(i));
         })().compute(len),
       );
     }
     if (old.trail && this.#trail) {
-      const len = old.count * trailStride(this.#trailPoints);
+      const srcLen = old.count * trailStride(this.#trailPoints);
+      const len = n * trailStride(this.#trailPoints);
       const src = old.trail;
       const dst = this.#trail;
       const cap = this.capacity * trailStride(this.#trailPoints);
       kernels.push(
         Fn(() => {
-          storage(dst, "vec4", cap).element(instanceIndex).assign(storage(src, "vec4", len).element(instanceIndex));
+          storage(dst, "vec4", cap).element(instanceIndex).assign(storage(src, "vec4", srcLen).element(instanceIndex));
         })().compute(len),
       );
     }
@@ -881,6 +980,8 @@ export class GpuPool {
   }
 
   #disposeKernels(): void {
+    this.#move?.kernel.dispose?.();
+    this.#move = null;
     const k = this.#k;
     if (!k) return;
     for (const n of [k.clear, k.prep, k.init, k.update, k.events]) n?.dispose?.();
@@ -923,7 +1024,8 @@ interface SpawnRecord {
  */
 export class GpuEmitter implements GpuSpawnTarget {
   readonly pool: GpuPool;
-  readonly lane: number;
+  /** This instance's lane (changes only when a shrinking pool set compacts). */
+  lane: number;
   readonly emitter: EmitterSim;
   #links: { trigger: "birth" | "death"; count: number; target: GpuEmitter }[] = [];
   #pending = 0;

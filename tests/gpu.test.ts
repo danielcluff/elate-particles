@@ -618,3 +618,91 @@ describe("GPU frustum culling", () => {
     expect(r.reads).toHaveLength(0);
   });
 });
+
+describe("GPU pool shrinking", () => {
+  const run = (w: ParticleWorld, seconds: number) => {
+    for (let i = 0; i < Math.round(seconds * 60); i++) w.update(1 / 60);
+  };
+  const laneOf = (h: { sim: { emitters: { gpu: unknown }[] } | null }) => h.sim!.emitters[0].gpu as GpuEmitter;
+
+  it("after a quiet spell, moves high lanes down and halves (or more), keeping instances and their rows", () => {
+    const w = new ParticleWorld({ renderer: fakeRenderer() });
+    const hs = Array.from({ length: 13 }, (_, i) => w.spawn(gpuDoc(), { autoRelease: false, position: { x: i, y: 0, z: 0 } }));
+    const pool = laneOf(hs[0]).pool;
+    expect(pool.lanes).toBe(16);
+    w.update(1 / 60);
+    // keep lanes 0 and 12
+    for (const h of hs.slice(1, 12)) h.release();
+    const keep = hs[12];
+    run(w, 4.9);
+    expect(pool.lanes).toBe(16); // not quiet for long enough yet
+    run(w, 0.2);
+    expect(pool.lanes).toBe(4); // 2 in use → room for 4 (doubling) → 4 = the starting size
+    expect(laneOf(keep).lane).toBe(1); // moved into the lowest free lane
+    expect(pool.capacity).toBe(4000);
+    // its row moved with it: the instance's position is in row 1
+    expect(pool.laneData[1 * pool.layout.width]).toBe(12);
+    w.update(1 / 60);
+    expect((pool.meshes[0].geometry as THREE.InstancedBufferGeometry).instanceCount).toBe(2 * 1000);
+    // releasing still works after the move
+    keep.release();
+    expect(keep.sim).toBeNull();
+    expect(pool.span).toBe(2);
+  });
+
+  it("doesn't shrink while more than a quarter is in use, or below its starting size", () => {
+    const w = new ParticleWorld({ renderer: fakeRenderer() });
+    const hs = Array.from({ length: 9 }, () => w.spawn(gpuDoc(), { autoRelease: false }));
+    const pool = laneOf(hs[0]).pool;
+    expect(pool.lanes).toBe(16);
+    for (const h of hs.slice(5)) h.release(); // 5 of 16: over a quarter
+    run(w, 6);
+    expect(pool.lanes).toBe(16);
+    hs[4].release(); // 4 of 16
+    run(w, 6);
+    expect(pool.lanes).toBe(8); // room to double 4
+    for (const h of hs.slice(0, 4)) h.release();
+    run(w, 12);
+    expect(pool.lanes).toBe(4); // the starting size is the floor
+  });
+
+  it("an interruption restarts the quiet spell", () => {
+    const w = new ParticleWorld({ renderer: fakeRenderer() });
+    const hs = Array.from({ length: 5 }, () => w.spawn(gpuDoc(), { autoRelease: false }));
+    const pool = laneOf(hs[0]).pool;
+    for (const h of hs.slice(1)) h.release();
+    run(w, 3);
+    const burst = [1, 2, 3, 4].map(() => w.spawn(gpuDoc(), { autoRelease: false }));
+    w.update(1 / 60);
+    for (const h of burst) h.release();
+    run(w, 3);
+    expect(pool.lanes).toBe(8);
+    run(w, 2.1);
+    expect(pool.lanes).toBe(4);
+  });
+
+  it("sub-emitter pools shrink together, keeping shared lane numbers", () => {
+    const w = new ParticleWorld({ renderer: fakeRenderer() });
+    const hs = Array.from({ length: 9 }, () => w.spawn(eventDoc(), { autoRelease: false }));
+    for (const h of hs.slice(0, 8)) h.release();
+    run(w, 5.1);
+    const [rocket, burst] = hs[8].sim!.emitters.map((e) => e.gpu as GpuEmitter);
+    expect(rocket.pool.lanes).toBe(4);
+    expect(burst.pool.lanes).toBe(4);
+    expect(rocket.lane).toBe(0);
+    expect(burst.lane).toBe(rocket.lane);
+  });
+
+  it("grows again after shrinking", () => {
+    const w = new ParticleWorld({ renderer: fakeRenderer() });
+    const hs = Array.from({ length: 9 }, () => w.spawn(gpuDoc(), { autoRelease: false }));
+    const pool = laneOf(hs[0]).pool;
+    for (const h of hs.slice(1)) h.release();
+    run(w, 5.1);
+    expect(pool.lanes).toBe(4);
+    const more = Array.from({ length: 6 }, () => w.spawn(gpuDoc(), { autoRelease: false }));
+    expect(pool.lanes).toBe(8);
+    expect(new Set([hs[0], ...more].map((h) => laneOf(h).lane)).size).toBe(7);
+    w.update(1 / 60);
+  });
+});

@@ -8,7 +8,7 @@ import { getGpuModule } from "./modules";
 import { MAX_GPU_TARGETS } from "./pool";
 import "./modules";
 
-export { GpuEmitter, GpuPool, GpuPoolSet, MAX_GPU_TARGETS, type GpuDraw } from "./pool";
+export { GpuEmitter, GpuPool, GpuPoolSet, GPU_SHRINK_AFTER, MAX_GPU_TARGETS, type GpuDraw } from "./pool";
 
 /** Reasons `tpl` can't be simulated on the GPU (empty = supported). */
 export function gpuSupport(tpl: EmitterTemplate, doc: EffectDoc): string[] {

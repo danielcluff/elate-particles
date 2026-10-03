@@ -196,8 +196,19 @@ The GPU path batches the way the CPU path does: one pool per (effect, GPU emitte
   rebuilds nodes but reuses the compiled pipelines. Replaced geometries are disposed only once the buffers they draw
   are retired (disposing a geometry destroys every buffer it uses).
 - **Freeing lanes.** Released instances free their lanes right away; pooled sims hold no GPU memory. Free lanes are
-  handed out lowest first, and draws and updates cover only up to the highest lane in use, so a pool that once peaked
-  costs little afterwards.
+  handed out lowest first, and draws and updates cover only up to the highest lane in use.
+- **Shrinking.** A set shrinks once at most a quarter of its lanes have been in use for `GPU_SHRINK_AFTER` (5 s).
+  - **Size:** the new size leaves room to double the current use (and never goes below the starting size). Growing
+    happens when full and shrinking at a quarter, so the two can't chase each other.
+  - **Compaction first:** each live lane at or above the new size moves into a free lane below it, in every pool of
+    the set, since sub-emitter groups share lane numbers. The move covers particles, ring counters and trail rings
+    (one dispatch per move), plus the lane's CPU row and owner. The instance's `GpuEmitter.lane` changes.
+  - **Then the resize:** the growth path runs in reverse, copying only the lanes that remain.
+  - **Lost on a move:** sub-emitter events still pending for a moved lane are dropped (the event kernel ignores
+    lanes past the end), as are bounds readings in flight.
+  - **Checked on real WebGPU:** after 12 of 13 sub-emitter volleys were released, the last one moved from lane 12 to
+    lane 0 in both its pools, which went from 16 lanes to 4 (about 135 MB → 34 MB). All its live particles (20
+    rockets, 35,290 burst stars) came along.
 - **Local space.** A sub-emitter group containing a local-space emitter gets a single-lane set per instance: its
   meshes are placed with the instance's matrix, as before.
 - **Sorting covers every instance** of a pool together, so overlapping smoke from two instances interleaves
@@ -340,8 +351,8 @@ slot after them, at 60 fps and 0.9 ms of CPU per frame for the scene. Distance s
 - **First use stalls.** three compiles compute pipelines synchronously on first dispatch. Expect a hitch the first
   time a GPU effect plays (longer with sorting: about 120 small kernels for 32k particles); later instances share the
   pool's kernels. Play a GPU effect once behind a loading screen to warm them up.
-- **Memory.** Every instance reserves a full lane of `maxParticles` slots (64 bytes each), and a pool keeps its peak
-  size.
+- **Memory.** Every instance reserves a full lane of `maxParticles` slots (64 bytes each). A pool shrinks back a few
+  seconds after a peak, but not below its starting size (`scalability.maxInstances` when set).
 
 Measured (this machine, browser): a 250k-capacity swarm (60k/s, vortex + turbulence + drag) runs at 60 fps with
 **0.4 ms** of CPU time per frame and ~240k live particles. The same effect on the CPU took 22–62 ms per frame
@@ -567,8 +578,8 @@ else is ~15–20 ns per particle.
 
 **Known gaps:** none from the original list. All six runtime gaps (renderers, sorting, soft particles, budget/LOD,
 multiple renderers, GPU and worker simulation) are closed, and GPU emitters now cover sub-emitters, sorting,
-curves over age, batching across instances, ribbons, sort groups and frustum culling. Candidates next: shrinking GPU
-pools after a peak, sorted GPU ribbons, skipping culled lanes' vertex work (indirect draws per lane range), and
+curves over age, batching across instances, ribbons, sort groups, frustum culling and pools that shrink after a peak.
+Candidates next: sorted GPU ribbons, skipping culled lanes' vertex work (indirect draws per lane range), and
 per-particle lights.
 
 ### three.js and framework compatibility
