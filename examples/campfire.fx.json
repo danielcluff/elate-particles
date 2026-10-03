@@ -381,6 +381,16 @@
           "depthFade": 0.3,
           "id": "fire.r0",
           "sortGroup": "fx"
+        },
+        {
+          "type": "light",
+          "ratio": 0.3,
+          "maxLights": 1,
+          "intensity": 30,
+          "range": 10,
+          "useParticleColor": true,
+          "alphaAffectsIntensity": true,
+          "id": "fire.light"
         }
       ]
     },

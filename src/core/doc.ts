@@ -29,6 +29,8 @@ export function defaultRenderer(type: RendererType = "sprite"): RendererDoc {
       return { type: "mesh", blend: "opaque", mesh: "icosahedron", orientation: "random" };
     case "ribbon":
       return { type: "ribbon", blend: "additive", shape: "softCircle", facing: "camera", uvMode: "stretch" };
+    case "light":
+      return { type: "light", ratio: 0.1, maxLights: 4, intensity: 2, range: 4, useParticleColor: true, alphaAffectsIntensity: true };
     default:
       return { type: "sprite", blend: "additive", shape: "softCircle", facing: "camera" };
   }
@@ -166,6 +168,14 @@ export function validateStructure(doc: EffectDoc): Issue[] {
       }
       if (!RENDERER_TYPES.includes(r?.type)) {
         issues.push({ level: "error", message: `Unknown renderer type "${String(r?.type)}"`, ...where });
+        continue;
+      }
+      if (r.type === "light") {
+        if (!(r.ratio >= 0 && r.ratio <= 1)) issues.push({ level: "error", message: "Light ratio must be between 0 and 1", ...where });
+        if (!(r.maxLights >= 0) || !Number.isInteger(r.maxLights)) issues.push({ level: "error", message: "maxLights must be a whole number ≥ 0", ...where });
+        if (!(r.intensity >= 0)) issues.push({ level: "error", message: "Light intensity must be ≥ 0", ...where });
+        if (!(r.range >= 0)) issues.push({ level: "error", message: "Light range must be ≥ 0", ...where });
+        if (r.useParticleColor === false && r.color !== undefined && !/^#[0-9a-f]{6}$/i.test(r.color)) issues.push({ level: "error", message: "Light color must be a #rrggbb hex colour", ...where });
         continue;
       }
       if (r.type !== "mesh" && r.shape === "texture" && !r.texture) issues.push({ level: "warning", message: "Texture shape without a texture", ...where });

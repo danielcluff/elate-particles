@@ -5,7 +5,7 @@
 
 import * as THREE from "three/webgpu";
 import { uniform } from "three/tsl";
-import type { EffectDoc, MeshRendererDoc, RendererDoc } from "../core/types";
+import type { DrawRendererDoc, EffectDoc, MeshRendererDoc } from "../core/types";
 import { compileEffect, type EffectTemplate } from "../sim/compile";
 import { EffectSim } from "../sim/effect";
 import type { EmitterTemplate } from "../sim/compile";
@@ -14,6 +14,9 @@ import { createBuiltinMesh } from "./geometries";
 import { SortGroup } from "./sort-group";
 import { GpuPoolSet, gpuPartners, gpuSupport, type GpuDraw, type GpuEmitter } from "./gpu/emitter";
 import { GpuSortGroup } from "./gpu/group";
+import { LIGHT_RECORD, lightBucket } from "./gpu/lights";
+import { ParticleLights, lightSource, offerParticleLight, type LightSource } from "./lights";
+import type { EmitterSim } from "../sim/emitter";
 
 /** An effect instance's GPU lanes: in its effect's shared pools, and in its own pools for local-space emitters. */
 interface GpuAttachment {
@@ -62,6 +65,13 @@ export interface ParticleWorldOptions {
   /** Skip drawing instances outside the camera frustum (needs a camera in update). Default true. */
   frustumCulling?: boolean;
   /**
+   * Per-particle lights (light renderers): a fixed pool of `max` PointLights,
+   * added to `object` and shared by every effect. Off by default: every light
+   * in the scene costs every lit material per-fragment work, even at intensity
+   * 0, and changing the count recompiles them, so the pool is sized once.
+   */
+  lights?: { max: number };
+  /**
    * The WebGPU renderer, needed for emitters with `sim: "gpu"` (compute
    * dispatch). Without it, or on the WebGL fallback, they run on the CPU.
    */
@@ -96,10 +106,14 @@ export interface ParticleWorldStats {
   budgetScale: number;
   /** Spawns refused this frame by maxInstances or distance culling. */
   rejectedSpawns: number;
+  /** Pool lights lit this frame by light renderers. */
+  lights: number;
 }
 
 interface Registered {
   template: EffectTemplate;
+  /** Per emitter index: its light renderers (offered to the light pool each frame). */
+  lights: LightSource[][];
   /** Every batch (begin/end/dispose). */
   batches: InstanceBatch[];
   /** Per emitter index: one target per enabled renderer (its own batch, or a sort group's batch + member index). */
@@ -249,7 +263,15 @@ export class ParticleWorld {
     this.#quality = Math.max(0, Math.min(1, opts.quality ?? 1));
     this.#budget = opts.budget?.maxParticles ?? null;
     for (const [name, g] of Object.entries(opts.geometries ?? {})) this.#geometries.set(name, g);
+    const max = Math.floor(opts.lights?.max ?? 0);
+    if (max > 0) {
+      this.#lights = new ParticleLights(max);
+      this.object.add(this.#lights.object);
+    }
   }
+
+  #lights: ParticleLights | null = null;
+  #lightsWarned = false;
 
   /**
    * Makes a geometry available to mesh renderers by name (e.g. debris from a
@@ -271,7 +293,7 @@ export class ParticleWorld {
     return () => createBuiltinMesh("box")!;
   }
 
-  #createBatch(e: EmitterTemplate, r: RendererDoc, lut: THREE.DataTexture | null): { batch: InstanceBatch; material: THREE.Material } {
+  #createBatch(e: EmitterTemplate, r: DrawRendererDoc, lut: THREE.DataTexture | null): { batch: InstanceBatch; material: THREE.Material } {
     const opts: MaterialOptions = { time: this.time, loadTexture: this.#loadTexture, hook: this.#opts.materialHook };
     switch (r.type) {
       case "mesh": {
@@ -290,7 +312,7 @@ export class ParticleWorld {
   }
 
   /** Material only (GPU emitters bring their own geometry). Ribbons never get here: gpuSupport rejects them. */
-  #createMaterial(e: EmitterTemplate, r: RendererDoc, lut: THREE.DataTexture | null): THREE.Material {
+  #createMaterial(e: EmitterTemplate, r: DrawRendererDoc, lut: THREE.DataTexture | null): THREE.Material {
     const opts: MaterialOptions = { time: this.time, loadTexture: this.#loadTexture, hook: this.#opts.materialHook };
     if (r.type === "mesh") return createMeshMaterial(e, r, lut, opts);
     if (r.type === "ribbon") return createRibbonMaterial(e, r, lut, opts);
@@ -322,6 +344,7 @@ export class ParticleWorld {
       template,
       batches: [],
       emitterBatches: [],
+      lights: [],
       gpuDraws: [],
       gpuShared: [],
       gpuLocal: [],
@@ -338,9 +361,17 @@ export class ParticleWorld {
       const lut = createLutTexture(e);
       if (lut) reg.luts.push(lut);
       const list: { batch: InstanceBatch; member: number }[] = [];
+      // light renderers draw nothing: they offer candidates to the world's light pool
+      const lightDocs = e.renderers.flatMap((r) => (r.type === "light" ? [r] : []));
+      reg.lights.push(lightDocs.map((r) => lightSource(e, r)));
+      if (lightDocs.length && !this.#lights && !this.#lightsWarned) {
+        this.#lightsWarned = true;
+        this.#warn(`tsl-particles: "${doc.name}" has light renderers but ParticleWorld has no light pool (options.lights.max); they light nothing`);
+      }
+      const drawDocs = e.renderers.filter((r): r is DrawRendererDoc => r.type !== "light");
       if (onGpu[e.index]) {
         // GPU emitters draw from their pools' meshes (one per renderer for every instance) with shared materials
-        const draws: GpuDraw[] = e.renderers.map((r) => {
+        const draws: GpuDraw[] = drawDocs.map((r) => {
           const base = r.type === "mesh" ? this.#meshGeometry(e, r) : () => new THREE.PlaneGeometry(1, 1);
           if (r.type === "ribbon") {
             // ribbon materials read a pool's buffers: each pool builds its own from this factory
@@ -360,7 +391,7 @@ export class ParticleWorld {
         continue;
       }
       reg.gpuDraws.push(null);
-      for (const r of e.renderers) {
+      for (const r of drawDocs) {
         if (r.type === "sprite" && r.sortGroup && r.blend !== "opaque") {
           const group = this.#group(r.sortGroup);
           const member = group.add(doc.id, e, r);
@@ -633,7 +664,7 @@ export class ParticleWorld {
     const renderer = this.#opts.renderer!;
     const now = this.time.value;
     for (const set of this.#gpuSets) {
-      set.dispatch(renderer, view, !!frustum, now);
+      set.dispatch(renderer, view, !!frustum, now, !!this.#lights);
       set.updateMeshes(null);
     }
     for (const h of active) {
@@ -683,6 +714,28 @@ export class ParticleWorld {
       }
     }
 
+    // per-particle lights: candidates from every instance in range (frustum-culled ones too: their light can
+    // reach what is on screen), the most important ones lit
+    const lights = this.#lights;
+    if (lights) {
+      lights.begin(view);
+      for (const h of active) {
+        if (h._culled) continue;
+        const sim = h.sim!;
+        const perEmitter = this.#effects.get(h.effectId)!.lights;
+        for (const em of sim.emitters) {
+          const srcs = perEmitter[em.template.index];
+          if (!srcs?.length) continue;
+          const g = em.gpu as GpuEmitter | null;
+          for (let k = 0; k < srcs.length; k++) {
+            if (g) this.#offerGpuLights(lights, srcs[k], g, k, now);
+            else this.#offerCpuLights(lights, srcs[k], em, sim.matrix, sim.transform.scale);
+          }
+        }
+      }
+      lights.end();
+    }
+
     // budget, feedforward: particle counts lag spawn decisions by a lifetime, so
     // reacting to the live count oscillates. Instead predict the steady population
     // (Little's law, demand × lifetime per emitter) and pick the scale that fits it.
@@ -717,6 +770,7 @@ export class ParticleWorld {
       culledInstances: f.culled,
       budgetScale: this.#budgetScale,
       rejectedSpawns: f.rejected,
+      lights: this.#lights?.active ?? 0,
     };
   }
 
@@ -858,6 +912,61 @@ export class ParticleWorld {
     this.#gpuOf.set(sim, at);
   }
 
+  #lightPick = new Int32Array(0);
+  #lightSeed = new Float32Array(0);
+
+  /** A CPU emitter's lights: per seed bucket, the particle with the highest seed (stable while it lives). */
+  #offerCpuLights(out: ParticleLights, src: LightSource, em: EmitterSim, matrix: ArrayLike<number>, scale: number): void {
+    const ratio = Math.min(1, src.r.ratio);
+    const max = Math.floor(src.r.maxLights);
+    const b = em.buf;
+    if (!(ratio > 0) || !(max > 0) || b.count === 0) return;
+    if (this.#lightPick.length < max) {
+      this.#lightPick = new Int32Array(max);
+      this.#lightSeed = new Float32Array(max);
+    }
+    const pick = this.#lightPick, best = this.#lightSeed;
+    pick.fill(-1, 0, max);
+    const seed = b.seed;
+    for (let i = 0; i < b.count; i++) {
+      const sd = seed[i];
+      if (sd >= ratio) continue;
+      const k = lightBucket(sd, ratio, max);
+      if (pick[k] < 0 || sd > best[k]) {
+        pick[k] = i;
+        best[k] = sd;
+      }
+    }
+    const local = em.template.space === "local";
+    const m = matrix;
+    for (let k = 0; k < max; k++) {
+      const i = pick[k];
+      if (i < 0) continue;
+      let x = b.px[i], y = b.py[i], z = b.pz[i];
+      let size = b.size[i];
+      if (local) {
+        const lx = x, ly = y, lz = z;
+        x = m[0] * lx + m[4] * ly + m[8] * lz + m[12];
+        y = m[1] * lx + m[5] * ly + m[9] * lz + m[13];
+        z = m[2] * lx + m[6] * ly + m[10] * lz + m[14];
+        size *= scale;
+      }
+      offerParticleLight(out, src, x, y, z, b.r[i], b.g[i], b.b[i], b.a[i], size, b.age[i] / b.life[i]);
+    }
+  }
+
+  /** A GPU emitter's lights: its lane's latest gather, moved along each light's velocity for the reading's age. */
+  #offerGpuLights(out: ParticleLights, src: LightSource, g: GpuEmitter, idx: number, now: number): void {
+    const reading = g.lightReading(idx);
+    if (!reading) return;
+    const lag = Math.max(0, now - reading.t);
+    const f = reading.ll.records;
+    for (let k = 0; k < reading.ll.count; k++) {
+      const o = k * LIGHT_RECORD;
+      offerParticleLight(out, src, f[o] + f[o + 4] * lag, f[o + 1] + f[o + 5] * lag, f[o + 2] + f[o + 6] * lag, f[o + 8], f[o + 9], f[o + 10], f[o + 11], f[o + 3], f[o + 7]);
+    }
+  }
+
   /** Registers a pool set for dispatch, and its sort-group members with their groups' GPU halves. */
   #addGpuSet(set: GpuPoolSet): void {
     this.#gpuSets.add(set);
@@ -896,6 +1005,7 @@ export class ParticleWorld {
     this.#effects.clear();
     for (const g of this.#groups.values()) g.dispose();
     this.#groups.clear();
+    this.#lights?.dispose();
     for (const t of this.#textures.values()) t.dispose();
     this.#textures.clear();
     this.object.removeFromParent();

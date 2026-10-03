@@ -53,6 +53,7 @@ import { getGpuModule } from "./modules";
 import { GpuSorter, type GpuKeySort } from "./sort";
 import type { RibbonSource } from "../materials/ribbon";
 import { GpuBounds, type LaneBounds } from "./bounds";
+import { GpuLightGather, type LaneLights } from "./lights";
 import { emitterRibbonSource, recordTrail, ribbonSort, trailRibbonSource, trailStride, type SegmentIndex } from "./ribbon";
 import "./modules";
 
@@ -247,10 +248,10 @@ export class GpuPoolSet {
    * pools also measure their lanes' bounds for frustum culling (read back a
    * few frames later); `now` is the world time the measurement is stamped with.
    */
-  dispatch(renderer: THREE.WebGPURenderer, view: SortView | null, cull = false, now = 0): void {
+  dispatch(renderer: THREE.WebGPURenderer, view: SortView | null, cull = false, now = 0, lights = false): void {
     this.#rangeDraws = (renderer as { hasFeature?: (f: string) => boolean }).hasFeature?.("indirect-first-instance") ?? false;
     this.#maybeShrink(renderer, now);
-    for (const p of this.pools) p._dispatch(renderer, view, cull, now);
+    for (const p of this.pools) p._dispatch(renderer, view, cull, now, lights);
   }
 
   /** Shows the meshes while any lane is in use, drawing only up to the highest one; `matrix` places a single-instance (local-space) set. */
@@ -345,6 +346,8 @@ export class GpuPool {
   #trail: THREE.StorageBufferAttribute | null = null;
   /** The lane-move kernel (compaction), built on first use for the current buffers. */
   #move: { kernel: Node; from: Node; to: Node } | null = null;
+  /** Per light renderer (in the template's order of light renderers): its gather, built on first use. */
+  #lightGathers: (GpuLightGather | undefined)[] = [];
   /** World time of the last bounds measurement (see GPU_BOUNDS_INTERVAL). */
   #measuredAt = -Infinity;
   /** Bounds measurement for frustum culling, created when the world first culls. */
@@ -599,6 +602,8 @@ export class GpuPool {
     this.#disposeKernels();
     this.#bounds?.dispose();
     this.#bounds = null;
+    for (const g of this.#lightGathers) g?.dispose();
+    this.#lightGathers = [];
     this.#setGeometries();
     for (let l = oldCount / this.laneCap; l < lanes; l++) this.clearLane(l);
   }
@@ -1003,7 +1008,7 @@ export class GpuPool {
   }
 
   /** @internal Writes lane rows and runs this frame's kernels. */
-  _dispatch(renderer: THREE.WebGPURenderer, view: SortView | null, cull = false, now = 0): void {
+  _dispatch(renderer: THREE.WebGPURenderer, view: SortView | null, cull = false, now = 0, lights = false): void {
     const owners = this.#owners;
     let any = this.#clearPending;
     for (let l = 0; l < this.lanes && !any; l++) any = owners[l] !== null && owners[l] !== undefined;
@@ -1047,11 +1052,38 @@ export class GpuPool {
     k.sorter?.run(renderer, view);
     if (span > 0) this.#sortRibbons(renderer, view);
     if (cull && span > 0) this.#measure(renderer, span, now);
+    if (lights && span > 0) this.#gatherLights(renderer, span, now);
 
     if (this.#clearPending) {
       for (let l = 0; l < this.lanes; l++) data[l * W + LANE.clear] = 0;
       this.#clearPending = false;
     }
+  }
+
+  /**
+   * Light candidates for each light renderer (see GpuLightGather), read back
+   * asynchronously to the lanes' current owners. Each gather starts again as
+   * soon as its last reading lands: lights want fresh positions.
+   */
+  #gatherLights(renderer: THREE.WebGPURenderer, span: number, now: number): void {
+    const docs = this.template.renderers.filter((r) => r.type === "light");
+    docs.forEach((r, idx) => {
+      if (r.type !== "light" || !(r.ratio > 0) || !(r.maxLights > 0)) return;
+      const g = (this.#lightGathers[idx] ??= new GpuLightGather(
+        { attrs: this.#attrs, capacity: this.capacity, laneCap: this.laneCap, lanes: this.lanes, local: this.template.space === "local", lane: (l) => this.laneValues(l) },
+        Math.min(1, r.ratio),
+        Math.floor(r.maxLights),
+      ));
+      if (g.busy) return;
+      const owners = this.#owners.slice(0, span);
+      g.run(renderer, span, this.laneCap, (lanes: LaneLights[]) => {
+        if (this.#lightGathers[idx] !== g) return;
+        lanes.forEach((ll, l) => {
+          const o = owners[l];
+          if (o && this.#owners[l] === o) o._setLights(idx, ll, now);
+        });
+      });
+    });
   }
 
   /** Starts a bounds measurement unless one is still being read back; results go to the lanes' current owners. */
@@ -1134,6 +1166,7 @@ export class GpuPool {
   dispose(): void {
     this.#disposeKernels();
     for (const s of this.#ribbonSorts) s?.dispose();
+    for (const g of this.#lightGathers) g?.dispose();
     this.#bounds?.dispose();
     this.#bounds = null;
     this.meshes.forEach((m, k) => {
@@ -1176,6 +1209,8 @@ export class GpuEmitter implements GpuSpawnTarget {
   #maxLife = 0;
   readonly #lastPos: [number, number, number] = [0, 0, 0];
   readonly #frame: FrameInfo = { cycleT: 0, params: {} };
+  /** Per light renderer: the latest light candidates read back for this lane, and when (world time). */
+  #lights: ({ ll: LaneLights; t: number } | null)[] = [];
   /** The latest bounds read back for this lane: when (world time) and where the instance was then. */
   #bounds: { lb: LaneBounds; t: number; at: number[] } | null = null;
 
@@ -1235,6 +1270,17 @@ export class GpuEmitter implements GpuSpawnTarget {
     this.#pending = 0;
     this.#records = [];
     this.#bounds = null;
+    this.#lights = [];
+  }
+
+  /** @internal a light gather landed */
+  _setLights(idx: number, ll: LaneLights, t: number): void {
+    this.#lights[idx] = { ll, t };
+  }
+
+  /** The latest light candidates of light renderer `idx` (records of LIGHT_RECORD floats) and their age, or null. */
+  lightReading(idx: number): { ll: LaneLights; t: number } | null {
+    return this.#lights[idx] ?? null;
   }
 
   /** @internal a bounds read landed */

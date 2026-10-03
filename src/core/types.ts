@@ -218,9 +218,38 @@ export interface RibbonRendererDoc extends RendererBase {
   softness?: number;
 }
 
-export type RendererDoc = SpriteRendererDoc | MeshRendererDoc | RibbonRendererDoc;
+/**
+ * Real lights from particles (Unity's Lights module, Niagara's light
+ * renderer): a stable random `ratio` of an emitter's particles each carry a
+ * point light that follows them, tinted and faded with the particle. Lights
+ * come from a fixed world pool (ParticleWorldOptions.lights.max), shared by
+ * every effect and handed to the most important candidates each frame.
+ */
+export interface LightRendererDoc extends RendererBase {
+  type: "light";
+  /** 0..1: fraction of particles that carry a light (picked by a stable per-particle random). */
+  ratio: number;
+  /** Most lights one emitter instance contributes. */
+  maxLights: number;
+  /** Light intensity (three's PointLight.intensity). */
+  intensity: number;
+  /** Light range in world units (PointLight.distance). */
+  range: number;
+  /** Tint by the particle's colour (× colour over life). Default true; otherwise `color`. */
+  useParticleColor?: boolean;
+  /** Hex colour when useParticleColor is false. */
+  color?: string;
+  /** Scale intensity by the particle's alpha (× alpha over life). Default true. */
+  alphaAffectsIntensity?: boolean;
+  /** Scale range by the particle's size (× size over life). Default false. */
+  sizeAffectsRange?: boolean;
+}
+
+export type RendererDoc = SpriteRendererDoc | MeshRendererDoc | RibbonRendererDoc | LightRendererDoc;
 export type RendererType = RendererDoc["type"];
-export const RENDERER_TYPES: RendererType[] = ["sprite", "mesh", "ribbon"];
+export const RENDERER_TYPES: RendererType[] = ["sprite", "mesh", "ribbon", "light"];
+/** Renderers that draw geometry (lights don't). */
+export type DrawRendererDoc = Exclude<RendererDoc, LightRendererDoc>;
 
 /** Spawn particles in another emitter when particles of this one are born or die (Unity sub-emitters). */
 export interface SubEmitterBinding {

@@ -41,7 +41,7 @@ scene.add(sun);
 const useWorker = new URLSearchParams(location.search).has("worker");
 const world = useWorker
   ? new WorkerParticleWorld(new Worker(new URL("./particles.worker.ts", import.meta.url), { type: "module" }))
-  : new ParticleWorld({ renderer });
+  : new ParticleWorld({ renderer, lights: { max: 16 } });
 type Handle = ParticleEffect | WorkerParticleEffect;
 scene.add(world.object);
 const registerAll = () => {

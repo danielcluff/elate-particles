@@ -133,7 +133,7 @@ export class WorkerParticleWorld {
   #pendingDt = 0;
   #layout = 0;
   #spares: (Float32Array | null)[] = [];
-  #stats: WorkerStats = { effects: 0, instances: 0, particles: 0, drawnParticles: 0, drawCalls: 0, culledInstances: 0, budgetScale: 1, rejectedSpawns: 0 };
+  #stats: WorkerStats = { effects: 0, instances: 0, particles: 0, drawnParticles: 0, drawCalls: 0, culledInstances: 0, budgetScale: 1, rejectedSpawns: 0, lights: 0 };
   #quality: number;
   #budget: number | null;
   #mismatchWarned = false;

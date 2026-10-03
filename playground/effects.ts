@@ -4,6 +4,7 @@ import {
   defaultRenderer,
   type EffectDoc,
   type EmitterDoc,
+  type LightRendererDoc,
   type ModuleInstance,
   type RendererDoc,
 } from "../src/index";
@@ -1060,6 +1061,14 @@ export const volley = effect("volley", "GPU Volley", [
     { blend: "additive", shape: "glow" },
   ),
 ]);
+
+// per-particle lights (they need ParticleWorld({ lights: { max } })): the fire flickers on the ground, fireballs
+// flash, GPU firework bursts glow
+const addLight = (fx: EffectDoc, emitterId: string, l: Partial<LightRendererDoc>) =>
+  fx.emitters.find((e) => e.id === emitterId)!.renderers.push({ ...(defaultRenderer("light") as LightRendererDoc), ...l, id: `${emitterId}.light` });
+addLight(campfire, "fire", { ratio: 0.3, maxLights: 1, intensity: 30, range: 10 });
+addLight(explosion, "fireball", { ratio: 0.5, maxLights: 2, intensity: 60, range: 16 });
+addLight(volley, "burst", { ratio: 0.02, maxLights: 6, intensity: 120, range: 24 });
 
 export const ALL_EFFECTS = [
   campfire,

@@ -64,6 +64,8 @@ export interface WorkerStats {
   culledInstances: number;
   budgetScale: number;
   rejectedSpawns: number;
+  /** Pool lights lit (always 0: per-particle lights aren't available in worker mode). */
+  lights: number;
 }
 
 export interface FrameResult {

@@ -90,7 +90,9 @@ EffectDoc
 | `mesh` | one mesh per particle: a built-in primitive or a geometry the host registers by name (`world.registerGeometry("rock", geo)`) | `orientation`: random (tumble by rotation/spin around a per-particle axis) / velocity (+Y along travel) / fixed; `lit` (MeshStandardNodeMaterial); `texture` | debris, shards, bolts, coins |
 | `ribbon` | one quad per segment. `mode: "emitter"`: one strip per effect instance through its particles, oldest → newest. `mode: "particle"`: a trail behind every particle | `facing`: camera / horizontal; `uvMode`: stretch (0 at the head → 1 at the tail) / tile (every `uvTile` units); `taper`, `fade` toward the tail; `trail: { points, minDistance, lifetime }` for particle mode; `shape` is the cross-section falloff or a texture | tracers, engine trails, beams (emitter mode); sparks with streaks, fireworks, magic missiles (particle mode) |
 
-All three share the over-life LUT (size and colour over life), the blend modes (`additive`, `alpha`, `premultiplied`,
+| `light` | no geometry: a point light on a stable random `ratio` of the particles, at most `maxLights` per emitter instance, from the world's light pool | `intensity`, `range`; `useParticleColor` (× colour over life) or `color`; `alphaAffectsIntensity`; `sizeAffectsRange` | fire flicker on the ground, explosion flashes, muzzle flashes, glowing embers and fireworks |
+
+The three drawing renderers share the over-life LUT (size and colour over life), the blend modes (`additive`, `alpha`, `premultiplied`,
 `opaque`), the material hook, and batching: one draw call per renderer however many instances are alive.
 
 **Several renderers per emitter** (as in Niagara): `EmitterDoc.renderers` is a list, so one simulation can be drawn
@@ -107,6 +109,37 @@ several ways, e.g. a stretched sprite head *and* a fading trail on the same spar
 - Files with the older single `renderer` field still load: `normalizeEffect` migrates it to `renderers: [renderer]`.
 - Cost: each renderer packs the emitter's particles again (about the cost of one pack per extra renderer). The
   simulation runs once. `drawnParticles` counts each particle once.
+
+How lights work (`light` renderers, see `three/lights.ts`):
+
+- **A fixed pool.** `new ParticleWorld({ lights: { max: 16 } })` adds `max` PointLights to `world.object` once.
+  Unused ones stay in the scene at intensity 0. In three, adding or removing lights changes the lighting hash and
+  recompiles every lit material, and every light costs each lit fragment whether or not it is bright, so the size is
+  chosen once and the feature is off by default. An effect with light renderers in a world without a pool warns once
+  and lights nothing.
+- **Stable picks.** A particle qualifies when its per-particle seed (fixed for its life) is below `ratio`. Qualifying
+  seeds spread over `maxLights` buckets, and each bucket's highest-seed particle carries the light. The same particle
+  keeps its light while it lives; taking the first N would make lights hop whenever an earlier particle dies. CPU and
+  GPU pick the same way (`lightBucket`).
+- **The light.** Position = the particle's (world space). Colour = its colour × colour over life (or the fixed
+  `color`). Intensity = `intensity` × alpha × alpha over life (unless `alphaAffectsIntensity: false`). Range =
+  `range` (× size × size over life with `sizeAffectsRange`).
+- **World-wide budget.** Every instance in range offers candidates each frame. Frustum-culled instances are included,
+  because a light just off screen still reaches what's on it; distance-culled ones are not. The pool lights the most
+  important: intensity ÷ (1 + (camera distance / range)²), so a near light beats a far brighter one. The rest go dark.
+  `stats.lights` counts the lit ones.
+- **GPU emitters.** The CPU can't see their particles, so each pool runs a small gather for each light renderer:
+  1. pass 1 does an `atomicMax` of the seed bits per (lane, bucket);
+  2. pass 2 has each bucket's winner write its record (world position, size, velocity, age, colour);
+  3. the buffer is read back asynchronously, one read in flight, restarted as soon as it lands.
+
+  The world places each light at its read-back position plus velocity × the reading's age.
+- **Checked on real WebGPU** (offscreen renders with the pool lit vs. dark): three explosions lit 7 lights and
+  brightened 48,564 pixels (mean brightness 21.9 → 28.9). The GPU volley's gather landed 236 times in 240 frames
+  with fresh readings, and its 6 lights brightened 3,292 pixels.
+- **Not in worker mode** (the lights would need the worker's particle positions on the main thread).
+- **For many lights,** three's `DynamicLighting` (counts change without recompiling) or `TiledLighting` (per-tile
+  light lists) cut the per-light shading cost. The pool works the same under either.
 
 How ribbons work:
 
@@ -443,7 +476,7 @@ world.update(dt, camera); // each frame
   fast-moving objects trail by a frame (a ship at 200 u/s moves ~3 units per frame). Both worlds can run side by side:
   main thread for the player's own effects, worker for the rest.
 - **Not in worker mode:** GPU emitters (they need the renderer on the main thread; they fall back to CPU-in-worker
-  with a warning). Mesh geometries are registered on the main thread only; the worker doesn't need them.
+  with a warning), and per-particle lights. Mesh geometries are registered on the main thread only; the worker doesn't need them.
 - Tests drive the host and client over an in-process channel that really transfers (detaches) buffers via
   `structuredClone(..., { transfer })`, so a reuse-after-transfer bug would throw.
 
@@ -625,7 +658,8 @@ multiple renderers, GPU and worker simulation) are closed, and GPU emitters now 
 curves over age, batching across instances, ribbons (sorted too), sort groups, frustum culling and pools that shrink
 after a peak.
 Every renderer feature now runs on the GPU too, and culled GPU instances cost neither simulation (with
-`pauseOffscreen`) nor vertex work. Candidates next: per-particle lights, and an effect-editor pass (Phase 2).
+`pauseOffscreen`) nor vertex work. Particles can light the scene (`light` renderers). Candidates next: the effect
+editor (Phase 2).
 
 ### three.js and framework compatibility
 

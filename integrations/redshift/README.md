@@ -153,6 +153,14 @@ too (bounds measured on the GPU, a few frames late, widened for the delay), so `
 GPU effects behind the camera.
 Play each GPU effect once during loading: three compiles compute pipelines on first use.
 
+## Per-particle lights
+
+`new ParticleWorld({ renderer, lights: { max: 16 } })` adds a fixed pool of point lights to the particle root.
+`light` renderers then light the scene from particles: explosions flash on nearby hulls, engine exhaust glows on the
+ship, a burning wreck flickers. Size the pool once (changing the light count recompiles lit materials) and keep it
+small. If Redshift moves to many lights, three's `DynamicLighting` or `TiledLighting` makes each light cheaper. The
+pool lights the most important candidates world-wide each frame, so a big battle degrades gracefully.
+
 ## Worker simulation
 
 Big battles can move particle simulation off the main thread: create a `WorkerParticleWorld` (see the design doc) for

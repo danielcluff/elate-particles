@@ -328,6 +328,16 @@
           "shape": "glow",
           "facing": "camera",
           "id": "burst.r0"
+        },
+        {
+          "type": "light",
+          "ratio": 0.02,
+          "maxLights": 6,
+          "intensity": 120,
+          "range": 24,
+          "useParticleColor": true,
+          "alphaAffectsIntensity": true,
+          "id": "burst.light"
         }
       ],
       "sim": "gpu",
