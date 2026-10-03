@@ -1,5 +1,6 @@
 import * as THREE from "three/webgpu";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { pass } from "three/tsl";
 import { ParticleWorld, type ParticleEffect } from "../src/three";
 import { validateEffect } from "../src/index";
 import { ALL_EFFECTS, campfire, explosion, firework, thruster, tracer } from "./effects";
@@ -18,7 +19,17 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 1.5, 0);
 controls.enableDamping = true;
 
+// solid ground and rocks: opaque geometry for soft particles to fade against
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200).rotateX(-Math.PI / 2), new THREE.MeshStandardNodeMaterial({ color: 0x0c111a, roughness: 1 }));
+scene.add(ground);
+for (const [x, z, s] of [[0.9, 0.2, 0.55], [-0.7, 0.6, 0.45], [-0.2, -0.9, 0.5], [0.5, -0.6, 0.35]]) {
+  const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), new THREE.MeshStandardNodeMaterial({ color: 0x2a2622, roughness: 0.9 }));
+  rock.position.set(x, s * 0.4, z);
+  rock.rotation.set(x, z, s);
+  scene.add(rock);
+}
 const grid = new THREE.GridHelper(60, 60, 0x223044, 0x141c28);
+grid.position.y = 0.002;
 scene.add(grid);
 // for lit mesh particles
 scene.add(new THREE.HemisphereLight(0xb0c4ff, 0x302010, 1.2));
@@ -184,6 +195,10 @@ let acc = 0;
 let simMs = 0;
 
 await renderer.init();
+
+// ?post=1 renders through a RenderPipeline scene pass, as Redshift does
+const pipeline = new URLSearchParams(location.search).has("post") ? new THREE.RenderPipeline(renderer) : null;
+if (pipeline) pipeline.outputNode = pass(scene, camera);
 setScene(new URLSearchParams(location.search).get("scene") ?? "campfire");
 
 renderer.setAnimationLoop(() => {
@@ -195,7 +210,8 @@ renderer.setAnimationLoop(() => {
   world.update(dt, camera);
   simMs += performance.now() - t0;
   controls.update();
-  renderer.render(scene, camera);
+  if (pipeline) pipeline.render();
+  else renderer.render(scene, camera);
 
   frames++;
   acc += dt;

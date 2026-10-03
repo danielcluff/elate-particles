@@ -57,7 +57,7 @@ export const campfire = effect("campfire", "Campfire", [
       ["render.sizeOverLife", { curve: curve(0, 0.5, 1, 2.6) }],
       ["render.colorOverLife", { gradient: { colors: [{ t: 0, color: "#ffffff" }], alphas: [{ t: 0, a: 0 }, { t: 0.2, a: 0.45 }, { t: 1, a: 0 }] } }],
     ],
-    { blend: "alpha", shape: "softCircle", softness: 0.8, sortOrder: -1, sort: "distance" },
+    { blend: "alpha", shape: "softCircle", softness: 0.8, sortOrder: -1, sort: "distance", depthFade: 0.6, cameraFade: 1 },
   ),
   emitter(
     "fire",
@@ -81,7 +81,7 @@ export const campfire = effect("campfire", "Campfire", [
         },
       ],
     ],
-    { blend: "additive", shape: "softCircle" },
+    { blend: "additive", shape: "softCircle", depthFade: 0.3 },
   ),
   emitter(
     "embers",
@@ -164,7 +164,7 @@ export const explosion = effect("explosion", "Explosion", [
       ["render.sizeOverLife", { curve: curve(0, 0.5, 1, 1.7) }],
       ["render.colorOverLife", { gradient: { colors: [{ t: 0, color: "#ffffff" }], alphas: [{ t: 0, a: 0 }, { t: 0.12, a: 0.65 }, { t: 1, a: 0 }] } }],
     ],
-    { blend: "alpha", shape: "softCircle", softness: 0.8, sortOrder: -1, sort: "distance" },
+    { blend: "alpha", shape: "softCircle", softness: 0.8, sortOrder: -1, sort: "distance", depthFade: 0.6, cameraFade: 1 },
   ),
   emitter(
     "fireball",

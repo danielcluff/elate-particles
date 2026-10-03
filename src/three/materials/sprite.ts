@@ -27,7 +27,7 @@ import {
 } from "three/tsl";
 import type { SpriteRendererDoc } from "../../core/types";
 import type { EmitterTemplate } from "../../sim/compile";
-import { applyBlend, overLife, particleAttributes, radialMask, whiteWithAlpha, type MaterialOptions, type Node } from "./common";
+import { applyBlend, depthFades, overLife, particleAttributes, radialMask, whiteWithAlpha, type MaterialOptions, type Node } from "./common";
 
 export function createSpriteMaterial(tpl: EmitterTemplate, lut: THREE.DataTexture | null, opts: MaterialOptions): THREE.MeshBasicNodeMaterial {
   const r = tpl.renderer as SpriteRendererDoc;
@@ -102,7 +102,10 @@ export function createSpriteMaterial(tpl: EmitterTemplate, lut: THREE.DataTextur
 
   // colour work per vertex (constant over a quad), shape per fragment
   const color: Node = varying(pD.mul(ol.color));
-  applyBlend(material, r.blend, color.xyz.mul(shape.xyz), color.w.mul(shape.w));
+  let alpha: Node = color.w.mul(shape.w);
+  const fade = depthFades(r, varying(viewPos.z));
+  if (fade) alpha = alpha.mul(fade);
+  applyBlend(material, r.blend, color.xyz.mul(shape.xyz), alpha);
 
   opts.hook?.({
     renderer: "sprite",

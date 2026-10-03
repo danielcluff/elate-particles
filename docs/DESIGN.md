@@ -118,6 +118,24 @@ needs `world.update(dt, camera)`), `oldestOnTop`, `newestOnTop`.
   premultiplied smoke); additive emitters are order-independent.
 - Between emitters, `sortOrder` (the mesh's `renderOrder`) decides.
 
+### Soft particles and camera fade
+
+Sprite and ribbon renderers take `depthFade` (soft particles) and `cameraFade`, both in world units, 0 = off:
+
+- **`depthFade`** fades a particle as it gets within that distance of scene geometry, so smoke on the ground or fire
+  around rocks has no hard intersection lines. Alpha × `saturate((sceneDistance − particleDistance) / depthFade)`.
+- **`cameraFade`** fades particles closer to the camera than that distance, so a camera flying through smoke doesn't
+  fill the screen with one huge sprite.
+
+Scene depth comes from three's shared `viewportLinearDepth`. When the first transparent material that needs it draws,
+the depth buffer is copied once per render. That happens after the opaque pass, so the copy holds opaque geometry
+only; particles never write depth. Particle distance comes from the view-space position the vertex shader already
+computes. Nothing is needed from the host.
+
+Verified on WebGPU rendering straight to an antialiased (MSAA) canvas, and through `RenderPipeline` + `pass(scene,
+camera)` (Redshift's setup). **Not verified:** three's WebGL2 fallback. Mesh renderers don't support fades; they're
+usually opaque.
+
 Per-particle trails (`mode: "particle"`, Unity's Trails module):
 
 - History lives in a `TrailStore` (`src/sim/trails.ts`), not in particle channels. Each trailed particle owns a slot:
@@ -207,11 +225,10 @@ else is ~15–20 ns per particle.
    supports gameplay callbacks, sub-emitters and determinism cheaply.
 2. **Cross-emitter sorting.** Particles sort within an emitter; between emitters, `sortOrder` decides (as in Unity and
    Niagara). Interleaving two alpha emitters correctly would need merging their batches.
-3. **Soft particles** (depth fade against the scene depth texture). Needs a depth pass from the host pipeline.
-4. **Multiple renderers per emitter** (Niagara allows several): a spark as a sprite head *and* a trail currently takes
+3. **Multiple renderers per emitter** (Niagara allows several): a spark as a sprite head *and* a trail currently takes
    two emitters, or a trail with a bright head via `fade`.
-5. **Budgets and LOD:** a world particle budget, distance culling of instances, quality tiers (Niagara scalability).
-6. A **worker simulation** if main-thread time gets tight (SoA buffers are transferable).
+4. **Budgets and LOD:** a world particle budget, distance culling of instances, quality tiers (Niagara scalability).
+5. A **worker simulation** if main-thread time gets tight (SoA buffers are transferable).
 
 ### three.js and framework compatibility
 
@@ -371,7 +388,7 @@ on it. That's the only change Phase 3 asks of tsl-graph.
 | --- | --- | --- |
 | **1** ✅ | Runtime library | Core, 20 modules, CPU sim, batched TSL sprite/mesh/ribbon renderers, Redshift adapter, examples, tests, playground |
 | 1.1 | Redshift adoption | Wire `ParticleWorld` into `Game.ts`; thrusters on ships; replace `EffectSpawner`; delete the old particle system |
-| 1.2 | Runtime gaps | ✅ mesh + ribbon renderers, per-particle trails, sorting; next: soft particles, world budget/LOD |
+| 1.2 | Runtime gaps | ✅ mesh + ribbon renderers, per-particle trails, sorting, soft particles + camera fade; next: world budget/LOD |
 | **2** | Effect editor | Stack UI, value widgets, timeline, viewport, store and undo, MCP + AI chat, `particle` graph kind in tsl-graph |
 | 2.1 | GPU backend | TSL compute implementations for built-in modules, `sim: "gpu"` per emitter |
 | **3** | FX studio | Monorepo, `studio-kit` extraction, asset model, prefabs, unified MCP, export bundle |

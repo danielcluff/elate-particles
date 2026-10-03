@@ -123,6 +123,10 @@ export interface SpriteRendererDoc {
   /** facing = "velocity": extra length per unit of speed. */
   stretch?: number;
   /** Draw order between emitters (higher draws later). */
+  /** Soft particles: fade over this many world units where the particle meets scene geometry (needs scene depth; 0 = off). */
+  depthFade?: number;
+  /** Fade particles closer to the camera than this many world units (fly-through smoke; 0 = off). */
+  cameraFade?: number;
   sortOrder?: number;
   /** Particle draw order within this emitter. Default "none". "distance" needs a camera in ParticleWorld.update. */
   sort?: SortMode;
@@ -193,6 +197,10 @@ export interface RibbonRendererDoc {
   /** stretch: u runs 0 (newest) → 1 (oldest); tile: u repeats every `uvTile` world units. */
   uvMode: "stretch" | "tile";
   uvTile?: number;
+  /** Soft particles: fade over this many world units where the particle meets scene geometry (needs scene depth; 0 = off). */
+  depthFade?: number;
+  /** Fade particles closer to the camera than this many world units (fly-through smoke; 0 = off). */
+  cameraFade?: number;
   sortOrder?: number;
   /** Particle draw order within this emitter. Default "none". "distance" needs a camera in ParticleWorld.update. */
   sort?: SortMode;

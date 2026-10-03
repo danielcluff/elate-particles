@@ -192,7 +192,9 @@
         "facing": "camera",
         "softness": 0.8,
         "sortOrder": -1,
-        "sort": "distance"
+        "sort": "distance",
+        "depthFade": 0.6,
+        "cameraFade": 1
       }
     },
     {
@@ -370,7 +372,8 @@
         "type": "sprite",
         "blend": "additive",
         "shape": "softCircle",
-        "facing": "camera"
+        "facing": "camera",
+        "depthFade": 0.3
       }
     },
     {

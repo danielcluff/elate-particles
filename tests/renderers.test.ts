@@ -242,3 +242,34 @@ describe("per-particle trails", () => {
     expect(data[last + 11]).toBeCloseTo(0); // head
   });
 });
+
+// ---------------------------------------------------------------------------
+// soft particles / camera fade
+
+import { createSpriteMaterial, createRibbonMaterial } from "../src/three";
+import { depthFades } from "../src/three/materials/common";
+import { float } from "three/tsl";
+
+describe("depth fades", () => {
+  it("are only built when enabled", () => {
+    expect(depthFades({}, float(-5))).toBeNull();
+    expect(depthFades({ depthFade: 0, cameraFade: 0 }, float(-5))).toBeNull();
+    expect(depthFades({ depthFade: 1 }, float(-5))).not.toBeNull();
+    expect(depthFades({ cameraFade: 2 }, float(-5))).not.toBeNull();
+  });
+
+  it("sprite and ribbon materials build with soft particles on", () => {
+    const opts = { time: float(0), loadTexture: () => new THREE.Texture() };
+    const doc = createEffect("soft");
+    executeCommand(doc, { op: "setRenderer", emitterId: doc.emitters[0].id, renderer: { blend: "alpha", depthFade: 0.5, cameraFade: 1 } });
+    expect(validateEffect(doc)).toEqual([]);
+    expect(createSpriteMaterial(compileEffect(doc).emitters[0], null, opts).opacityNode).toBeTruthy();
+    expect(createRibbonMaterial(compileEffect(trail({ depthFade: 0.5 } as Partial<EmitterDoc["renderer"]>)).emitters[0], null, opts).opacityNode).toBeTruthy();
+  });
+
+  it("rejects negative fade distances", () => {
+    const doc = createEffect("soft");
+    executeCommand(doc, { op: "setRenderer", emitterId: doc.emitters[0].id, renderer: { depthFade: -1 } });
+    expect(validateEffect(doc).some((i) => i.message.includes("depthFade"))).toBe(true);
+  });
+});

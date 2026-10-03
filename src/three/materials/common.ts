@@ -1,7 +1,7 @@
 // Pieces shared by the sprite, mesh and ribbon materials.
 
 import * as THREE from "three/webgpu";
-import { attribute, clamp, float, pow, smoothstep, texture, vec2, vec3, vec4 } from "three/tsl";
+import { attribute, cameraFar, cameraNear, clamp, float, pow, smoothstep, texture, vec2, vec3, vec4, viewportLinearDepth } from "three/tsl";
 import type { EmitterTemplate } from "../../sim/compile";
 import type { BlendMode, RendererType } from "../../core/types";
 import { LUT_SIZE } from "../../core/values";
@@ -111,6 +111,30 @@ export function radialMask(shape: string, d: Node, softness: number): Node {
 
 export function whiteWithAlpha(a: Node): Node {
   return vec4(vec3(1), a);
+}
+
+/**
+ * Alpha multiplier for soft particles (`depthFade`) and near-camera fading
+ * (`cameraFade`), or null when neither is on. `viewZ` is the fragment's
+ * view-space z (negative in front of the camera).
+ *
+ * Scene depth comes from three's shared `viewportLinearDepth`: one copy of the
+ * depth buffer per render, taken when the first transparent material that needs
+ * it draws (after opaques, so it holds opaque geometry only).
+ */
+export function depthFades(r: { depthFade?: number; cameraFade?: number }, viewZ: Node): Node | null {
+  const dist: Node = viewZ.negate();
+  let f: Node | null = null;
+  if (r.depthFade && r.depthFade > 0) {
+    // linear depth is 0..1 between near and far (perspective and orthographic alike)
+    const sceneDist: Node = cameraNear.add(viewportLinearDepth.mul(cameraFar.sub(cameraNear)));
+    f = clamp(sceneDist.sub(dist).div(r.depthFade), 0, 1);
+  }
+  if (r.cameraFade && r.cameraFade > 0) {
+    const c: Node = clamp(dist.sub(cameraNear).div(r.cameraFade), 0, 1);
+    f = f ? f.mul(c) : c;
+  }
+  return f;
 }
 
 /** Configures blending and assigns colour/opacity for `blend`. */

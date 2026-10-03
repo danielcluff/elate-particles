@@ -8,7 +8,7 @@ import * as THREE from "three/webgpu";
 import { abs, attribute, cameraProjectionMatrix, cross, length, modelViewMatrix, normalize, positionGeometry, select, texture, uv, varying, vec2, vec3, vec4 } from "three/tsl";
 import type { RibbonRendererDoc } from "../../core/types";
 import type { EmitterTemplate } from "../../sim/compile";
-import { applyBlend, overLife, radialMask, whiteWithAlpha, type MaterialOptions, type Node } from "./common";
+import { applyBlend, depthFades, overLife, radialMask, whiteWithAlpha, type MaterialOptions, type Node } from "./common";
 
 /**
  * Per-segment instance layout: two endpoints × four vec4s.
@@ -72,7 +72,10 @@ export function createRibbonMaterial(tpl: EmitterTemplate, lut: THREE.DataTextur
   let color: Node = D.mul(ol.color);
   if (fade > 0) color = color.mul(vec4(1, 1, 1, tail.mul(-fade).add(1)));
   color = varying(color);
-  applyBlend(material, r.blend, color.xyz.mul(shape.xyz), color.w.mul(shape.w));
+  let alpha: Node = color.w.mul(shape.w);
+  const soft = depthFades(r, varying(viewPos.z));
+  if (soft) alpha = alpha.mul(soft);
+  applyBlend(material, r.blend, color.xyz.mul(shape.xyz), alpha);
 
   opts.hook?.({
     renderer: "ribbon",
