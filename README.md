@@ -14,7 +14,8 @@ Data-driven particle effects for three.js (WebGPU / TSL).
 - **GPU simulation** (`sim: "gpu"`) for huge emitters: TSL compute, same materials, CPU fallback. 240k particles at
   60 fps for 0.4 ms of CPU. Instances of an effect share one pool, one set of kernels and one draw call per renderer
   (400 instances: 401 → 2 draws, 22.7 → 2.7 ms of CPU). Sub-emitters (GPU → GPU events via atomics and indirect
-  dispatch), bitonic depth/age sorting across instances and curves over particle age all run on the GPU.
+  dispatch), bitonic depth/age sorting across instances, curves over particle age, ribbons (per-particle trails and
+  emitter strips, read from storage in the vertex shader) and sort groups shared with CPU emitters all run on the GPU.
 - **Worker simulation** (`WorkerParticleWorld`): same API, CPU simulation in a Web Worker, packed arrays ping-ponged
   back as transferables. ~7 ms of main-thread time freed in the stress scene.
 - **Batched rendering.** Every live instance of an emitter shares one instanced draw call, so 1,900 explosions render

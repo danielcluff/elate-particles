@@ -114,11 +114,28 @@
       "render": [],
       "renderers": [
         {
+          "type": "ribbon",
+          "blend": "additive",
+          "shape": "glow",
+          "facing": "camera",
+          "uvMode": "stretch",
+          "mode": "particle",
+          "trail": {
+            "points": 20,
+            "minDistance": 0.25,
+            "lifetime": 0.6
+          },
+          "taper": 1,
+          "fade": 1,
+          "id": "rockets.r0"
+        },
+        {
           "type": "sprite",
           "blend": "additive",
           "shape": "glow",
           "facing": "camera",
-          "id": "rockets.r0"
+          "sortOrder": 1,
+          "id": "rockets.r1"
         }
       ],
       "sim": "gpu",

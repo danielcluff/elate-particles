@@ -3,7 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { pass } from "three/tsl";
 import { ParticleWorld, WorkerParticleWorld, type ParticleEffect, type WorkerParticleEffect } from "../src/three";
 import { validateEffect } from "../src/index";
-import { ALL_EFFECTS, campfire, explosion, firework, gpuSmoke, swarm, thruster, torch, tracer, volley } from "./effects";
+import { ALL_EFFECTS, campfire, comet, explosion, firework, gpuSmoke, swarm, thruster, torch, tracer, volley } from "./effects";
 
 const renderer = new THREE.WebGPURenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -162,8 +162,13 @@ const scenes: Record<string, Scene> = {
       controls.target.set(0, 2, 0);
       live.push(world.spawn(swarm, { autoRelease: false, position: new THREE.Vector3(-6, 3, 0) }));
       live.push(world.spawn(gpuSmoke, { autoRelease: false, position: new THREE.Vector3(8, 0, 0) }));
+      // a CPU campfire under the GPU smoke: both in the "fx" sort group, sorted together on the GPU
+      live.push(world.spawn(campfire, { autoRelease: false, position: new THREE.Vector3(8, 0, 0) }));
+      live.push(world.spawn(comet, { autoRelease: false, position: new THREE.Vector3(0, 6, 0) }));
     },
-    update() {},
+    update(_dt, t) {
+      live[3]?.setPosition(Math.cos(t * 0.8) * 9, 6 + Math.sin(t * 1.7) * 2, Math.sin(t * 0.8) * 9);
+    },
     exit() {
       clearLive();
       camera.position.set(5, 3.5, 7);

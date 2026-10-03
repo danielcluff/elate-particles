@@ -69,6 +69,11 @@ export abstract class InstanceBatch {
     this.mesh.visible = false;
   }
 
+  /** This frame's packed instances (`instances` × stride floats are meaningful); replaced when the batch grows. */
+  get packed(): Float32Array {
+    return this.data;
+  }
+
   /** Instances drawn this frame (particles for sprites/meshes, segments for ribbons). */
   get instances(): number {
     return this.count;

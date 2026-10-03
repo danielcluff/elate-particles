@@ -172,8 +172,8 @@ const world = new ParticleWorld({ renderer }); // the WebGPURenderer, needed to 
   effect finishes. GPU emitters skip frustum culling; distance culling and LOD still apply through the effect's
   position.
 - **Falls back to the CPU** (one warning listing the reasons) for: no `renderer` option, the WebGL fallback backend,
-  ribbon renderers, sort groups, modules without a GPU implementation, more than 3 sub-emitter targets, or a
-  sub-emitter partner (source or target) that stays on the CPU. Events don't cross between the two simulators, so
+  sorted ribbons, modules without a GPU implementation, more than 3 sub-emitter targets, or a sub-emitter partner
+  (source or target) that stays on the CPU. Events don't cross between the two simulators, so
   partners move together. `sim: "gpu"` is always safe to set.
 
 #### Batching GPU emitters across instances
@@ -214,6 +214,53 @@ per-instance version:
 
 (Draw counts include the scene's campfire. In the batched runs most of the remaining update time is the 100–400
 CPU-side effect simulations deciding spawn counts.)
+
+#### GPU ribbons
+
+Ribbon renderers on GPU emitters build nothing per segment. The ribbon material is the CPU one, with its endpoint
+source swapped (`createRibbonMaterial(..., source)`): instead of reading packed instance attributes, it reads the
+pool's particle buffers (and trail rings) as read-only storage in the vertex shader. Each pool builds its own ribbon
+materials, rebuilt when the pool grows. Invalid segments get zero width at the origin.
+
+- **mode `"particle"` (per-particle trails).** Each slot owns a ring of `points` history points (xyz, time) plus a
+  meta vec4 (head, count, live, skip-newest).
+  - The update kernel records a point when the particle has moved `minDistance`, and starts a fresh trail when it
+    sees a particle born this frame (age 0).
+  - It also counts how many points are younger than the trail lifetime, so the vertex shader doesn't walk the ring.
+  - Drawing is one instance per (slot, history point): the live points oldest first, then the particle itself, with
+    central-difference tangents.
+  - Strip coordinate, taper, fade and `uvMode: "tile"` (a bounded loop over the trail) match the CPU.
+  - The playground's GPU volley rockets use this.
+- **mode `"emitter"`.** On the GPU a lane's spawn order *is* ring order, so the strip runs slot i → i + 1, up to the
+  newest slot (one before the lane's ring head, read from the counter buffer).
+  - Differences from the CPU: the strip coordinate (taper, fade, `stretch` u) is the particle's age rather than its
+    position along the strip, which is the same for equal lifetimes. `tile` tiles by age in seconds, because there
+    is no running distance along the strip. A dead particle in the middle breaks the strip rather than being
+    bridged.
+  - A browser check against the same effect on the CPU, moving in a circle, gave the same arc.
+- **Not supported:** sorted ribbons (falls back to the CPU). Storage reads in the vertex stage need
+  `maxStorageBuffersInVertexStage` ≥ 6 (8 on core WebGPU; compatibility-mode devices may have 0).
+- **A TSL pitfall found here:** `select(cond, a, b)` over `toVar()` nodes compiles to an if/else, and the vars'
+  first assignments land inside the branches, so one branch reads them unset. Build such values arithmetically (the
+  endpoint index is `i + select(end, 1, 0)`, not `select(end, i + 1, i)`).
+
+#### GPU sort groups
+
+A GPU emitter's sprite renderer can join a `sortGroup` with CPU members and other GPU emitters. Once a GPU member
+joins, the group sorts and draws on the GPU (`GpuSortGroup`):
+
+1. **CPU members** still pack into the group's batch, now unsorted and not drawn (hidden meshes aren't uploaded).
+   Its packed array is uploaded as a storage buffer (only the used range).
+2. **Gather.** One small kernel per source copies its particles into a combined buffer: CPU members first, then
+   each GPU pool's used lanes. The member index goes into `pC.w`, and local-space pools are moved to world space via
+   their lane rows. Segment offsets and counts are uniforms, so joining and leaving don't rebuild anything; only
+   growing the combined buffer does (doubling). A fill kernel marks the stale tail dead.
+3. **Sort and draw.** The combined buffer is depth-sorted (`GpuSorter`) and drawn with the group's uber material.
+   That is one draw call, with CPU and GPU particles interleaved by depth.
+
+When the last GPU member leaves, the group goes back to sorting on the CPU. A browser readback of the playground's
+GPU scene (CPU campfire fire/smoke/embers plus GPU smoke in group `fx`) showed 25,047 particles from four members in
+one draw, with zero depth inversions and 283 switches between members along the draw order.
 
 #### GPU sub-emitters
 
@@ -490,8 +537,8 @@ else is ~15–20 ns per particle.
 
 **Known gaps:** none from the original list. All six runtime gaps (renderers, sorting, soft particles, budget/LOD,
 multiple renderers, GPU and worker simulation) are closed, and GPU emitters now cover sub-emitters, sorting,
-curves over age and batching across instances. Candidates next: GPU ribbons and sort groups, GPU frustum culling
-(bounds via atomics), shrinking GPU pools after a peak, and per-particle lights.
+curves over age, batching across instances, ribbons and sort groups. Candidates next: GPU frustum culling (bounds via
+atomics), shrinking GPU pools after a peak, sorted GPU ribbons, and per-particle lights.
 
 ### three.js and framework compatibility
 

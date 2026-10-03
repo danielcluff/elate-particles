@@ -251,6 +251,7 @@
           "shape": "softCircle",
           "facing": "camera",
           "sort": "distance",
+          "sortGroup": "fx",
           "id": "smoke.r0"
         }
       ],

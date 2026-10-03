@@ -13,6 +13,7 @@ import { InstanceBatch, ParticleBatch, RibbonBatch, type SortView } from "./batc
 import { createBuiltinMesh } from "./geometries";
 import { SortGroup } from "./sort-group";
 import { GpuPoolSet, gpuPartners, gpuSupport, type GpuDraw, type GpuEmitter } from "./gpu/emitter";
+import { GpuSortGroup } from "./gpu/group";
 
 /** An effect instance's GPU lanes: in its effect's shared pools, and in its own pools for local-space emitters. */
 interface GpuAttachment {
@@ -339,11 +340,20 @@ export class ParticleWorld {
       const list: { batch: InstanceBatch; member: number }[] = [];
       if (onGpu[e.index]) {
         // GPU emitters draw from their pools' meshes (one per renderer for every instance) with shared materials
-        const draws: GpuDraw[] = e.renderers.map((r) => ({
-          renderer: r,
-          material: this.#createMaterial(e, r, lut),
-          base: r.type === "mesh" ? this.#meshGeometry(e, r) : () => new THREE.PlaneGeometry(1, 1),
-        }));
+        const draws: GpuDraw[] = e.renderers.map((r) => {
+          const base = r.type === "mesh" ? this.#meshGeometry(e, r) : () => new THREE.PlaneGeometry(1, 1);
+          if (r.type === "ribbon") {
+            // ribbon materials read a pool's buffers: each pool builds its own from this factory
+            const opts: MaterialOptions = { time: this.time, loadTexture: this.#loadTexture, hook: this.#opts.materialHook };
+            return { renderer: r, material: new THREE.MeshBasicNodeMaterial(), base, ribbon: (src) => createRibbonMaterial(e, r, lut, opts, src) };
+          }
+          if (r.type === "sprite" && r.sortGroup && r.blend !== "opaque") {
+            const member = this.#group(r.sortGroup).add(doc.id, e, r);
+            if (member !== null) return { renderer: r, material: new THREE.MeshBasicNodeMaterial(), base, group: { name: r.sortGroup, member } };
+            this.#warn(`tsl-particles: "${doc.name}" / ${e.doc.name} can't join sort group "${r.sortGroup}" (its texture differs from the group's); drawn on its own`);
+          }
+          return { renderer: r, material: this.#createMaterial(e, r, lut), base };
+        });
         for (const d of draws) reg.materials.push(d.material);
         reg.gpuDraws.push(draws);
         reg.emitterBatches.push(list);
@@ -654,7 +664,19 @@ export class ParticleWorld {
       }
     }
     for (const reg of this.#effects.values()) for (const b of reg.batches) b.end(view);
-    for (const g of this.#groups.values()) g.batch.end(view);
+    for (const g of this.#groups.values()) {
+      const gpu = g.gpu;
+      if (gpu?.active) {
+        // GPU members: the group sorts and draws on the GPU; the CPU batch only collects CPU members' particles
+        g.batch.end(null);
+        g.batch.mesh.visible = false;
+        gpu.dispatch(renderer, view, { data: g.batch.packed, count: g.batch.instances }, g.material);
+      } else {
+        g.batch.end(view);
+        g.batch.mesh.visible = true;
+        if (gpu) gpu.mesh.visible = false;
+      }
+    }
 
     // budget, feedforward: particle counts lag spawn decisions by a lifetime, so
     // reacting to the live count oscillates. Instead predict the steady population
@@ -678,7 +700,7 @@ export class ParticleWorld {
   get stats(): ParticleWorldStats {
     let drawCalls = 0;
     for (const reg of this.#effects.values()) for (const b of reg.batches) if (b.instances > 0) drawCalls++;
-    for (const g of this.#groups.values()) if (g.batch.instances > 0) drawCalls++;
+    for (const g of this.#groups.values()) if (g.gpu?.active ? g.gpu.mesh.visible : g.batch.instances > 0) drawCalls++;
     for (const set of this.#gpuSets) drawCalls += set.drawCalls;
     const f = this.#frameStats;
     return {
@@ -733,8 +755,7 @@ export class ParticleWorld {
     for (const sim of reg.pool) this.#disposeGpu(sim);
     reg.pool.length = 0;
     if (reg.gpuPools) {
-      this.#gpuSets.delete(reg.gpuPools);
-      reg.gpuPools.dispose();
+      this.#removeGpuSet(reg.gpuPools);
       reg.gpuPools = null;
     }
   }
@@ -814,7 +835,7 @@ export class ParticleWorld {
         // sized for maxInstances when the effect declares it (growing rebuilds the kernels)
         const lanes = Math.max(1, reg.template.doc.scalability?.maxInstances ?? GPU_INITIAL_LANES);
         reg.gpuPools = new GpuPoolSet(emitters, reg.gpuShared, reg.gpuDraws, this.object, lanes, true);
-        this.#gpuSets.add(reg.gpuPools);
+        this.#addGpuSet(reg.gpuPools);
       }
       const lanes = reg.gpuPools.acquire(sim);
       if (lanes) {
@@ -827,9 +848,26 @@ export class ParticleWorld {
       // local-space groups: a single-lane set per instance, its meshes placed at the instance
       at.local = new GpuPoolSet(emitters, reg.gpuLocal, reg.gpuDraws, this.object, 1, false);
       at.lanes.push(...at.local.acquire(sim)!);
-      this.#gpuSets.add(at.local);
+      this.#addGpuSet(at.local);
     }
     this.#gpuOf.set(sim, at);
+  }
+
+  /** Registers a pool set for dispatch, and its sort-group members with their groups' GPU halves. */
+  #addGpuSet(set: GpuPoolSet): void {
+    this.#gpuSets.add(set);
+    for (const pool of set.pools)
+      for (const m of pool.groupMembers) {
+        const g = this.#group(m.name);
+        g.gpu ??= new GpuSortGroup(m.name, this.object);
+        g.gpu.addSource(pool, m.member);
+      }
+  }
+
+  #removeGpuSet(set: GpuPoolSet): void {
+    this.#gpuSets.delete(set);
+    for (const g of this.#groups.values()) for (const pool of set.pools) g.gpu?.removePool(pool);
+    set.dispose();
   }
 
   #teleportGpu(sim: EffectSim): void {
@@ -841,8 +879,7 @@ export class ParticleWorld {
     if (!at) return;
     at.shared?.release(at.sharedLanes);
     if (at.local) {
-      this.#gpuSets.delete(at.local);
-      at.local.dispose();
+      this.#removeGpuSet(at.local);
       for (const g of at.lanes) if (g.emitter.gpu === g) g.emitter.gpu = null;
     }
     this.#gpuOf.delete(sim);

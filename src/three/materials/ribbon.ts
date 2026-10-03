@@ -20,18 +20,40 @@ import { applyBlend, depthFades, overLife, radialMask, whiteWithAlpha, type Mate
 export const RIBBON_STRIDE = 32;
 export const RIBBON_ATTRIBUTES = ["rA0", "rB0", "rC0", "rD0", "rA1", "rB1", "rC1", "rD1"] as const;
 
-export function createRibbonMaterial(tpl: EmitterTemplate, r: RibbonRendererDoc, lut: THREE.DataTexture | null, opts: MaterialOptions): THREE.MeshBasicNodeMaterial {
+/** This vertex's segment endpoint in the per-segment layout above (A..D). */
+export interface RibbonEndpoint {
+  A: Node;
+  B: Node;
+  C: Node;
+  D: Node;
+}
+
+/**
+ * Where endpoints come from: by default the CPU-packed instance attributes;
+ * GPU emitters pass a source that reads their particle and trail buffers
+ * (storage) in the vertex shader. `end` is true for the segment's second end.
+ */
+export type RibbonSource = (end: Node) => RibbonEndpoint;
+
+const attributeSource: RibbonSource = (end) => {
+  const pick = (i: number): Node => select(end, attribute(RIBBON_ATTRIBUTES[i + 4], "vec4"), attribute(RIBBON_ATTRIBUTES[i], "vec4"));
+  return { A: pick(0), B: pick(1), C: pick(2), D: pick(3) };
+};
+
+export function createRibbonMaterial(
+  tpl: EmitterTemplate,
+  r: RibbonRendererDoc,
+  lut: THREE.DataTexture | null,
+  opts: MaterialOptions,
+  source: RibbonSource = attributeSource,
+): THREE.MeshBasicNodeMaterial {
   const material = new THREE.MeshBasicNodeMaterial();
   material.name = `particles:${tpl.doc.name}:${r.type}`;
   material.side = THREE.DoubleSide;
 
   // which end of the segment this vertex belongs to (quad y is ±0.5)
   const end: Node = positionGeometry.y.greaterThan(0);
-  const pick = (i: number): Node => select(end, attribute(RIBBON_ATTRIBUTES[i + 4], "vec4"), attribute(RIBBON_ATTRIBUTES[i], "vec4"));
-  const A: Node = pick(0);
-  const B: Node = pick(1);
-  const C: Node = pick(2);
-  const D: Node = pick(3);
+  const { A, B, C, D } = source(end);
 
   const age: Node = A.w;
   const ol = overLife(lut, age);

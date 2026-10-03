@@ -1,0 +1,117 @@
+{
+  "format": "tsl-particles",
+  "version": 1,
+  "id": "comet",
+  "name": "GPU Comet",
+  "emitters": [
+    {
+      "id": "tail",
+      "name": "tail",
+      "duration": 1,
+      "looping": true,
+      "startDelay": 0,
+      "maxParticles": 512,
+      "space": "world",
+      "spawn": [
+        {
+          "id": "tail.spawn.rate",
+          "type": "spawn.rate",
+          "params": {
+            "rate": 90
+          }
+        }
+      ],
+      "init": [
+        {
+          "id": "tail.init.lifetime",
+          "type": "init.lifetime",
+          "params": {
+            "lifetime": 1.6
+          }
+        },
+        {
+          "id": "tail.init.size",
+          "type": "init.size",
+          "params": {
+            "size": 0.5
+          }
+        },
+        {
+          "id": "tail.init.color",
+          "type": "init.color",
+          "params": {
+            "color": {
+              "kind": "constant",
+              "color": "#60c0ff",
+              "intensity": 3
+            }
+          }
+        }
+      ],
+      "update": [
+        {
+          "id": "tail.update.turbulence",
+          "type": "update.turbulence",
+          "params": {
+            "strength": 1.5,
+            "frequency": 0.5,
+            "scroll": 0.5
+          }
+        }
+      ],
+      "render": [
+        {
+          "id": "tail.render.colorOverLife",
+          "type": "render.colorOverLife",
+          "params": {
+            "gradient": {
+              "colors": [
+                {
+                  "t": 0,
+                  "color": "#ffffff"
+                },
+                {
+                  "t": 1,
+                  "color": "#4060ff"
+                }
+              ],
+              "alphas": [
+                {
+                  "t": 0,
+                  "a": 1
+                },
+                {
+                  "t": 1,
+                  "a": 0
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "renderers": [
+        {
+          "type": "ribbon",
+          "blend": "additive",
+          "shape": "glow",
+          "facing": "camera",
+          "uvMode": "stretch",
+          "mode": "emitter",
+          "taper": 1,
+          "fade": 0.5,
+          "id": "tail.r0"
+        },
+        {
+          "type": "sprite",
+          "blend": "additive",
+          "shape": "glow",
+          "facing": "camera",
+          "sortOrder": 1,
+          "id": "tail.r1"
+        }
+      ],
+      "sim": "gpu"
+    }
+  ],
+  "parameters": []
+}

@@ -195,11 +195,7 @@ export function validateStructure(doc: EffectDoc): Issue[] {
       // sub-emitter events only flow GPU → GPU: both ends must ask for the GPU
       const partners = [...(e.subEmitters ?? []).map((s) => s.emitter), ...doc.emitters.filter((o) => o.subEmitters?.some((s) => s.emitter === e.id)).map((o) => o.id)];
       if (partners.some((id) => doc.emitters.find((o) => o.id === id)?.sim !== "gpu")) why.push("sub-emitters with a CPU partner");
-      for (const r of e.renderers ?? []) {
-        if (r.enabled === false) continue;
-        if (r.type === "ribbon") why.push("ribbon renderers");
-        if (r.type === "sprite" && r.sortGroup) why.push("sort groups");
-      }
+      for (const r of e.renderers ?? []) if (r.enabled !== false && r.type === "ribbon" && r.sort && r.sort !== "none") why.push("sorted ribbons");
       if (why.length) issues.push({ level: "warning", message: `GPU simulation doesn't support ${[...new Set(why)].join(", ")}; this emitter will run on the CPU`, emitterId: e.id });
     }
     // one trail history per emitter: particle-mode ribbons must agree on it

@@ -147,7 +147,8 @@ GPU). Sub-emitters work when both ends are `"sim": "gpu"`, so a large set-piece 
 shattering asteroid shedding dust) can stay entirely on the GPU. GPU instances of one effect are batched into one
 pool and draw call, so many copies of a GPU effect are fine too: engine glow on every ship of a fleet, running lights
 along a station. Set `scalability.maxInstances` on those to size the pool up front. Each instance reserves its full
-`maxParticles`, so keep that tight. Keep gameplay effects with ribbons or sort groups on the CPU (those are CPU-only).
+`maxParticles`, so keep that tight. GPU emitters can have ribbons and join sort groups with CPU effects, so a GPU
+smoke column and a CPU explosion in the same group still blend in depth order.
 Play each GPU effect once during loading: three compiles compute pipelines on first use.
 
 ## Worker simulation

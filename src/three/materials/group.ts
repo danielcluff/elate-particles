@@ -77,7 +77,8 @@ export function createGroupMaterial(name: string, table: THREE.DataTexture, rows
 
   // ---- vertex: the three sprite facings, picked per member ------------------
   const corner: Node = positionGeometry.xy;
-  const size: Node = pC.x.mul(sizeOL);
+  // (GPU pools hide distance-culled instances with a negative size)
+  const size: Node = max(pC.x, 0).mul(sizeOL);
   const rot: Node = pC.y;
   const c: Node = cos(rot);
   const s: Node = sin(rot);

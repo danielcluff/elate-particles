@@ -53,9 +53,9 @@ describe("GPU support checks", () => {
 
   it("explains what keeps an emitter on the CPU", () => {
     const doc = gpuDoc((d) => {
-      d.emitters[0].renderers = [{ type: "ribbon", blend: "additive", shape: "glow", facing: "camera", uvMode: "stretch" }];
+      d.emitters[0].renderers = [{ type: "ribbon", blend: "additive", shape: "glow", facing: "camera", uvMode: "stretch", sort: "distance" }];
     });
-    expect(gpuSupport(compileEffect(doc).emitters[0], doc).join("\n")).toMatch(/ribbon/);
+    expect(gpuSupport(compileEffect(doc).emitters[0], doc).join("\n")).toMatch(/sorted ribbons/);
   });
 
   it("accepts curves over particle age, sorting and sub-emitters", () => {
@@ -90,9 +90,9 @@ describe("GPU support checks", () => {
     });
     expect(validateEffect(doc)).toEqual([]);
     const bad = gpuDoc((d) => {
-      d.emitters[0].renderers[0] = { type: "ribbon", blend: "additive", shape: "glow", facing: "camera", uvMode: "stretch" };
+      d.emitters[0].renderers[0] = { type: "ribbon", blend: "additive", shape: "glow", facing: "camera", uvMode: "stretch", sort: "distance" };
     });
-    expect(validateEffect(bad).some((i) => i.message.includes("GPU simulation doesn't support ribbon renderers"))).toBe(true);
+    expect(validateEffect(bad).some((i) => i.message.includes("GPU simulation doesn't support sorted ribbons"))).toBe(true);
     const mixed = eventDoc((d) => {
       d.emitters[1].sim = "cpu";
     });
@@ -257,7 +257,7 @@ describe("GPU sub-emitters", () => {
     const w = new ParticleWorld({ renderer: fakeRenderer() });
     const h = w.spawn(
       eventDoc((d) => {
-        d.emitters[1].renderers = [{ type: "ribbon", blend: "additive", shape: "glow", facing: "camera", uvMode: "stretch" }];
+        d.emitters[1].renderers = [{ type: "ribbon", blend: "additive", shape: "glow", facing: "camera", uvMode: "stretch", sort: "distance" }];
       }),
     );
     expect(h.sim!.emitters.map((e) => e.gpu)).toEqual([null, null]);
@@ -395,5 +395,86 @@ describe("GPU batching across instances", () => {
     expect(w.stats.drawCalls).toBe(2);
     a.release();
     expect(pa.meshes[0].parent).toBeNull();
+  });
+});
+
+describe("GPU ribbons", () => {
+  const ribbon = (mode: "particle" | "emitter") => ({ type: "ribbon" as const, mode, trail: { points: 8, minDistance: 0.1, lifetime: 0.5 }, blend: "additive" as const, shape: "glow" as const, facing: "camera" as const, uvMode: "stretch" as const });
+
+  it("accepts both ribbon modes", () => {
+    for (const mode of ["particle", "emitter"] as const) {
+      const doc = gpuDoc((d) => void (d.emitters[0].renderers = [ribbon(mode)]));
+      expect(gpuSupport(compileEffect(doc).emitters[0], doc)).toEqual([]);
+    }
+  });
+
+  it("particle trails draw one instance per history point per slot, from a pool-built material", () => {
+    const w = new ParticleWorld({ renderer: fakeRenderer() });
+    const h = w.spawn(gpuDoc((d) => void (d.emitters[0].renderers = [ribbon("particle"), { type: "sprite", blend: "additive", shape: "glow", facing: "camera" }])));
+    const pool = (h.sim!.emitters[0].gpu as GpuEmitter).pool;
+    const [trail, sprite] = pool.meshes;
+    const placeholder = trail.material;
+    w.update(1 / 60);
+    expect(trail.material).not.toBe(placeholder); // built over the pool's buffers on the first dispatch
+    expect((trail.geometry as THREE.InstancedBufferGeometry).instanceCount).toBe(1000 * 8);
+    expect((sprite.geometry as THREE.InstancedBufferGeometry).instanceCount).toBe(1000);
+    // a resize rebuilds it over the new buffers
+    const built = trail.material;
+    for (let i = 0; i < 4; i++) w.spawn(gpuDoc((d) => void (d.emitters[0].renderers = [ribbon("particle"), { type: "sprite", blend: "additive", shape: "glow", facing: "camera" }])));
+    w.update(1 / 60);
+    expect(pool.lanes).toBe(8);
+    expect(trail.material).not.toBe(built);
+  });
+
+  it("emitter-mode ribbons draw one segment per slot", () => {
+    const w = new ParticleWorld({ renderer: fakeRenderer() });
+    const h = w.spawn(gpuDoc((d) => void (d.emitters[0].renderers = [ribbon("emitter")])));
+    w.update(1 / 60);
+    const [m] = (h.sim!.emitters[0].gpu as GpuEmitter).pool.meshes;
+    expect((m.geometry as THREE.InstancedBufferGeometry).instanceCount).toBe(1000);
+    expect(w.stats.drawCalls).toBe(1);
+  });
+});
+
+describe("GPU sort groups", () => {
+  const grouped = (id: string, sim: "gpu" | "cpu") =>
+    gpuDoc((d) => {
+      d.id = id;
+      d.emitters[0].sim = sim;
+      d.emitters[0].renderers = [{ type: "sprite", blend: "alpha", shape: "softCircle", facing: "camera", sortGroup: "fx" }];
+    });
+  const named = (w: ParticleWorld, name: string) => w.object.children.find((c) => c.name === name) as THREE.Mesh | undefined;
+
+  it("GPU members draw through the group: CPU and GPU particles gathered, sorted on the GPU, one draw call", () => {
+    const r = fakeRenderer();
+    const w = new ParticleWorld({ renderer: r });
+    const g = w.spawn(grouped("gpuFx", "gpu"));
+    w.spawn(grouped("cpuFx", "cpu"));
+    const pool = (g.sim!.emitters[0].gpu as GpuEmitter).pool;
+    expect(pool.meshes).toHaveLength(0); // its sprite renderer is a group member
+    expect(pool.groupMembers).toEqual([{ name: "fx", member: 0 }]);
+    w.update(1 / 60, new THREE.PerspectiveCamera());
+    expect(named(w, "particles:group:fx")!.visible).toBe(false);
+    const gpuMesh = named(w, "particles:group:fx:gpu")!;
+    expect(gpuMesh.visible).toBe(true);
+    // CPU members (10 particles) + the GPU pool's used lanes (1 × 1000)
+    expect((gpuMesh.geometry as THREE.InstancedBufferGeometry).instanceCount).toBe(10 + 1000);
+    expect(w.stats.drawCalls).toBe(1);
+    // gather (fill + CPU copy + pool copy) in one call, then key + passes + gather halves in another
+    expect(r.calls.at(-2)).toEqual({ count: null, batch: 3 });
+    expect(r.calls.at(-1)?.batch).toBeGreaterThan(3);
+  });
+
+  it("falls back to CPU sorting when the last GPU member leaves", () => {
+    const w = new ParticleWorld({ renderer: fakeRenderer() });
+    const g = w.spawn(grouped("gpuFx", "gpu"), { autoRelease: false });
+    w.spawn(grouped("cpuFx", "cpu"));
+    w.update(1 / 60);
+    g.release();
+    w.unregister("gpuFx");
+    w.update(1 / 60);
+    expect(named(w, "particles:group:fx")!.visible).toBe(true);
+    expect(named(w, "particles:group:fx:gpu")!.visible).toBe(false);
+    expect(w.stats.drawCalls).toBe(1);
   });
 });

@@ -865,7 +865,28 @@ export const gpuSmoke = effect("gpuSmoke", "GPU Smoke", [
         },
       ],
     ],
-    { blend: "alpha", shape: "softCircle", sort: "distance" },
+    // in the "fx" sort group: sorted on the GPU together with the (CPU) campfire's fire and smoke
+    { blend: "alpha", shape: "softCircle", sort: "distance", sortGroup: "fx" },
+  ),
+]);
+
+/** Emitter-mode ribbon on the GPU: a strip through the particles in spawn order, behind a moving effect. */
+export const comet = effect("comet", "GPU Comet", [
+  emitter(
+    "tail",
+    { maxParticles: 512, sim: "gpu" },
+    [
+      ["spawn.rate", { rate: 90 }],
+      ["init.lifetime", { lifetime: 1.6 }],
+      ["init.size", { size: 0.5 }],
+      ["init.color", { color: { kind: "constant", color: "#60c0ff", intensity: 3 } }],
+      ["update.turbulence", { strength: 1.5, frequency: 0.5, scroll: 0.5 }],
+      ["render.colorOverLife", { gradient: { colors: [{ t: 0, color: "#ffffff" }, { t: 1, color: "#4060ff" }], alphas: [{ t: 0, a: 1 }, { t: 1, a: 0 }] } }],
+    ],
+    [
+      { type: "ribbon", mode: "emitter", taper: 1, fade: 0.5, blend: "additive", shape: "glow" },
+      { blend: "additive", shape: "glow", sortOrder: 1 },
+    ],
   ),
 ]);
 
@@ -948,7 +969,11 @@ export const volley = effect("volley", "GPU Volley", [
         ],
         ["update.gravity", {}],
       ],
-      { blend: "additive", shape: "glow" },
+      [
+        // per-particle trails on the GPU: a history ring per particle, drawn from storage in the vertex shader
+        { type: "ribbon", mode: "particle", trail: { points: 20, minDistance: 0.25, lifetime: 0.6 }, taper: 1, fade: 1, blend: "additive", shape: "glow" },
+        { blend: "additive", shape: "glow", sortOrder: 1 },
+      ],
     ),
     subEmitters: [
       {
@@ -1044,6 +1069,7 @@ export const ALL_EFFECTS = [
   firework,
   swarm,
   gpuSmoke,
+  comet,
   volley,
   torch,
 ];

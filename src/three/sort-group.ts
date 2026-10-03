@@ -9,6 +9,7 @@ import { LUT_SIZE } from "../core/values";
 import type { EmitterTemplate } from "../sim/compile";
 import { ParticleBatch } from "./batch";
 import type { MaterialOptions } from "./materials/common";
+import type { GpuSortGroup } from "./gpu/group";
 import { GROUP_FACINGS, GROUP_FLIPBOOK_MODES, GROUP_ROWS_PER_MEMBER, GROUP_SHAPES, createGroupMaterial } from "./materials/group";
 
 interface Member {
@@ -19,6 +20,8 @@ interface Member {
 export class SortGroup {
   readonly name: string;
   readonly batch: ParticleBatch;
+  /** The GPU half, once a GPU emitter joins: gathers CPU and GPU members and sorts them together on the GPU. */
+  gpu: GpuSortGroup | null = null;
   #capacity: number;
   #table: THREE.DataTexture;
   #material: THREE.MeshBasicNodeMaterial;
@@ -37,6 +40,11 @@ export class SortGroup {
     const renderer: SpriteRendererDoc = { type: "sprite", blend: "premultiplied", shape: "softCircle", facing: "camera", sort: "distance" };
     this.batch = new ParticleBatch({ doc: { name: `group:${name}` }, capacity: 256 }, renderer, this.#material);
     this.batch.mesh.name = `particles:group:${name}`;
+  }
+
+  /** The current group material (rebuilt when the table grows or the group's texture first appears). */
+  get material(): THREE.MeshBasicNodeMaterial {
+    return this.#material;
   }
 
   get memberCount(): number {
@@ -117,6 +125,7 @@ export class SortGroup {
   }
 
   dispose(): void {
+    this.gpu?.dispose();
     this.batch.dispose();
     this.#material.dispose();
     this.#table.dispose();

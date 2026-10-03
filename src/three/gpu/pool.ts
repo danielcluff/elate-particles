@@ -40,7 +40,7 @@ import {
   vec3,
   vec4,
 } from "three/tsl";
-import type { FloatValue, RendererDoc } from "../../core/types";
+import type { FloatValue, RendererDoc, RibbonRendererDoc } from "../../core/types";
 import { resolveParams } from "../../core/params";
 import { compileFloat, type CompiledFloat } from "../../core/values";
 import type { CompiledModule, EmitterTemplate, ResolvedSubEmitter } from "../../sim/compile";
@@ -51,6 +51,8 @@ import { PARTICLE_ATTRIBUTES, type Node } from "../materials/common";
 import { GpuBuildContext, LANE, LaneLayout, LaneValues, rotateQ, type FrameInfo, type GpuParticle } from "./context";
 import { getGpuModule } from "./modules";
 import { GpuSorter } from "./sort";
+import type { RibbonSource } from "../materials/ribbon";
+import { emitterRibbonSource, recordTrail, trailRibbonSource, trailStride } from "./ribbon";
 import "./modules";
 
 // (@types/three types atomics as AtomicFunctionNode, without the node operators)
@@ -81,8 +83,13 @@ export const MAX_GPU_TARGETS = 3;
 /** A renderer of a GPU emitter: shared material and the base geometry to instance. */
 export interface GpuDraw {
   renderer: RendererDoc;
+  /** Shared by every pool (sprites, meshes); unused for ribbons and sort-group members. */
   material: THREE.Material;
   base: () => THREE.BufferGeometry;
+  /** Ribbons: the material reads the pool's own buffers, so each pool builds one from its endpoint source. */
+  ribbon?: (source: RibbonSource) => THREE.Material;
+  /** Sort-group members draw through their group (GpuSortGroup), not a mesh of the pool. */
+  group?: { name: string; member: number };
 }
 
 interface PoolLink {
@@ -189,12 +196,12 @@ export class GpuPoolSet {
       }
     for (const p of this.pools) {
       p.span = span;
-      for (const m of p.meshes) {
+      p.meshes.forEach((m, k) => {
         m.visible = span > 0;
         // sorted copies hold every live particle first, so the same count covers them
-        (m.geometry as THREE.InstancedBufferGeometry).instanceCount = span * p.laneCap;
+        (m.geometry as THREE.InstancedBufferGeometry).instanceCount = span * p.laneCap * p.instancesPerSlot(k);
         if (matrix && p.template.space === "local") m.matrix.fromArray(matrix);
-      }
+      });
     }
   }
 
@@ -227,13 +234,22 @@ export class GpuPool {
   /** Lane rows (layout.width floats each), uploaded every dispatch. */
   laneData: Float32Array;
   readonly #draws: GpuDraw[];
+  /** Sprite renderers drawn through sort groups (see GpuSortGroup). */
+  readonly groupMembers: { name: string; member: number }[];
+  /** Per mesh: the draw it renders. */
+  readonly #meshDraws: GpuDraw[] = [];
   readonly #sortedDraw: boolean[];
+  /** Per-particle trail rings (ribbon mode "particle"), else null. */
+  #trail: THREE.StorageBufferAttribute | null = null;
+  readonly #trailPoints: number;
+  /** Ribbon meshes' materials are built per pool from its buffers; null = rebuild on the next dispatch. */
+  #ribbonsStale = true;
   #attrs: THREE.StorageInstancedBufferAttribute[];
   #ctrl: THREE.StorageBufferAttribute | null = null;
   #laneTex: THREE.DataTexture;
   #k: Kernels | null = null;
   /** Buffers to copy live particles from after a resize (on the next dispatch). */
-  #old: { attrs: THREE.StorageInstancedBufferAttribute[]; ctrl: THREE.StorageBufferAttribute | null; count: number; ctrlLen: number } | null = null;
+  #old: { attrs: THREE.StorageInstancedBufferAttribute[]; ctrl: THREE.StorageBufferAttribute | null; trail?: THREE.StorageBufferAttribute; count: number; ctrlLen: number } | null = null;
   /**
    * Replaced geometries and the particle buffers they draw. Disposing a
    * geometry destroys every buffer it uses, shared ones included, so they wait
@@ -259,15 +275,18 @@ export class GpuPool {
     this.template = tpl;
     this.laneCap = tpl.capacity;
     this.lanes = lanes;
-    this.#draws = draws;
-    this.#sortedDraw = draws.map((d) => !!d.renderer.sort && d.renderer.sort !== "none");
+    this.#draws = draws.filter((d) => !d.group);
+    this.groupMembers = draws.flatMap((d) => (d.group ? [d.group] : []));
+    this.#sortedDraw = this.#draws.map((d) => d.renderer.type !== "ribbon" && !!d.renderer.sort && d.renderer.sort !== "none");
+    this.#trailPoints = tpl.trail ? Math.max(2, Math.floor(tpl.trail.points)) : 0;
+    if (tpl.trail) this.#trail = this.#newTrail();
     const lt = [...tpl.initLocal, ...tpl.initSim].find((m) => m.def.type === "init.lifetime");
     this.lifetime = lt ? compileFloat(resolveParams(lt.def.params, lt.instance.params).lifetime as FloatValue, 1) : null;
     this.#attrs = this.#newAttrs();
     this.laneData = new Float32Array(this.layout.width * lanes);
     this.#laneTex = this.#newLaneTex();
-    for (const d of draws) {
-      const mesh = new THREE.Mesh(new THREE.BufferGeometry(), d.material);
+    for (const d of this.#draws) {
+      const mesh = new THREE.Mesh(new THREE.BufferGeometry(), d.ribbon ? new THREE.MeshBasicNodeMaterial() : d.material);
       mesh.name = `particles:gpu:${tpl.doc.name}:${d.renderer.type}`;
       mesh.frustumCulled = false;
       mesh.matrixAutoUpdate = false;
@@ -275,6 +294,7 @@ export class GpuPool {
       mesh.visible = false;
       parent.add(mesh);
       this.meshes.push(mesh);
+      this.#meshDraws.push(d);
     }
     this.#setGeometries();
     // fresh buffers are zeros, which read as live particles of age 0: start every lane dead
@@ -295,6 +315,21 @@ export class GpuPool {
     return this.#attrs;
   }
 
+  #newTrail(): THREE.StorageBufferAttribute {
+    return new THREE.StorageBufferAttribute(this.capacity * trailStride(this.#trailPoints), 4);
+  }
+
+  /** Instances drawn per particle slot by mesh `k`: a trail ribbon has one per history point. */
+  instancesPerSlot(k: number): number {
+    const r = this.#meshDraws[k].renderer;
+    return r.type === "ribbon" && r.mode === "particle" ? this.#trailPoints : 1;
+  }
+
+  /** The world space of this pool's lane-local values (for sort groups gathering local-space pools). */
+  laneValues(lane: Node): LaneValues {
+    return new LaneValues(this.#laneTex, lane, this.#seedU);
+  }
+
   #newAttrs(): THREE.StorageInstancedBufferAttribute[] {
     return [0, 1, 2, 3].map(() => new THREE.StorageInstancedBufferAttribute(this.capacity, 4));
   }
@@ -308,11 +343,21 @@ export class GpuPool {
 
   /** Instanced geometry per renderer over the current buffers (sorted renderers get theirs when the sorter exists). */
   #setGeometries(): void {
+    this.#ribbonsStale = true;
     this.meshes.forEach((mesh, k) => {
+      if (this.#meshDraws[k].ribbon) {
+        // ribbons instance a plain quad and read particles from storage: the geometry never changes
+        if (!mesh.geometry.getAttribute("position")) {
+          const g = new THREE.InstancedBufferGeometry().copy(this.#meshDraws[k].base() as THREE.InstancedBufferGeometry);
+          mesh.geometry.dispose();
+          mesh.geometry = g;
+        }
+        return;
+      }
       const attrs = this.#sortedDraw[k] && this.#k?.sorter ? this.#k.sorter.attrs : this.#attrs;
       const prev = mesh.geometry;
       if (prev.getAttribute(PARTICLE_ATTRIBUTES.a) === attrs[0]) return;
-      const base = this.#draws[k].base();
+      const base = this.#meshDraws[k].base();
       const g = new THREE.InstancedBufferGeometry().copy(base as THREE.InstancedBufferGeometry);
       base.dispose();
       Object.values(PARTICLE_ATTRIBUTES).forEach((name, i) => g.setAttribute(name, attrs[i]));
@@ -365,6 +410,10 @@ export class GpuPool {
     this.lanes = lanes;
     this.#attrs = this.#newAttrs();
     this.#ctrl = null;
+    if (this.#trail) {
+      this.#old.trail ??= this.#trail;
+      this.#trail = this.#newTrail();
+    }
     const data = new Float32Array(this.layout.width * lanes);
     data.set(this.laneData);
     this.laneData = data;
@@ -608,6 +657,7 @@ export class GpuPool {
       const lane: Node = i.div(uint(L)).toVar();
       const u = lv(lane);
       const c: Node = C.element(i).toVar();
+      const wasNew: Node = a.w.equal(0);
       // hidden lanes (distance-culled instances) store a negative size, which materials draw as nothing
       const sign: Node = select(u.visible.greaterThan(0.5), float(1), float(-1));
       If(u.dt.equal(0), () => {
@@ -638,10 +688,16 @@ export class GpuPool {
         this.#emitEvents("death", p, ctx, lane);
         p.size.assign(0);
       });
+      const trail = this.#trail;
+      if (trail && tpl.trail) {
+        const T = storage(trail, "vec4", cap * trailStride(this.#trailPoints));
+        If(p.age01.lessThan(1), () => recordTrail(T, i, this.#trailPoints, tpl.trail!, p.pos, wasNew, u.time));
+      }
       this.#write(bufs, i, p, sign);
     })().compute(cap);
 
-    const sortMode = tpl.renderers.find((r) => r.sort && r.sort !== "none")?.sort;
+    // (sort-group members sort in their group; ribbons don't sort on the GPU)
+    const sortMode = this.#draws.find((d) => d.renderer.type !== "ribbon" && d.renderer.sort && d.renderer.sort !== "none")?.renderer.sort;
     const local = tpl.space === "local";
     const sorter =
       sortMode && sortMode !== "none"
@@ -697,6 +753,17 @@ export class GpuPool {
         })().compute(len),
       );
     }
+    if (old.trail && this.#trail) {
+      const len = old.count * trailStride(this.#trailPoints);
+      const src = old.trail;
+      const dst = this.#trail;
+      const cap = this.capacity * trailStride(this.#trailPoints);
+      kernels.push(
+        Fn(() => {
+          storage(dst, "vec4", cap).element(instanceIndex).assign(storage(src, "vec4", len).element(instanceIndex));
+        })().compute(len),
+      );
+    }
     renderer.compute(kernels);
     for (const k of kernels) k.dispose?.();
     this.#purge();
@@ -715,6 +782,7 @@ export class GpuPool {
     if (!any) return;
     const k = this.#ensureKernels(renderer);
     if (this.#old) this.#copyOld(renderer);
+    if (this.#ribbonsStale) this.#buildRibbons();
 
     // module values per lane, spawn prefix sums
     const W = this.layout.width;
@@ -756,6 +824,24 @@ export class GpuPool {
     }
   }
 
+  /** (Re)builds ribbon materials over the current buffers. */
+  #buildRibbons(): void {
+    this.#ribbonsStale = false;
+    const buffers = { attrs: this.#attrs, capacity: this.capacity, laneCap: this.laneCap, lane: (l: Node) => this.laneValues(l), local: this.template.space === "local" };
+    this.meshes.forEach((mesh, k) => {
+      const d = this.#meshDraws[k];
+      if (!d.ribbon) return;
+      const r = d.renderer as RibbonRendererDoc;
+      const source =
+        r.mode === "particle" && this.#trail
+          ? trailRibbonSource(buffers, this.#trail, this.#trailPoints, r)
+          : emitterRibbonSource(buffers, () => this.#ctrlBuffer(), this.#ctrlLen(), this.#lanesAt(), r);
+      const old = mesh.material as THREE.Material;
+      mesh.material = d.ribbon(source);
+      old.dispose();
+    });
+  }
+
   #disposeKernels(): void {
     const k = this.#k;
     if (!k) return;
@@ -766,10 +852,11 @@ export class GpuPool {
 
   dispose(): void {
     this.#disposeKernels();
-    for (const m of this.meshes) {
+    this.meshes.forEach((m, k) => {
       m.removeFromParent();
       m.geometry.dispose();
-    }
+      if (this.#meshDraws[k].ribbon) (m.material as THREE.Material).dispose();
+    });
     for (const g of this.#retired.keys()) g.dispose();
     this.#retired.clear();
     this.#laneTex.dispose();
