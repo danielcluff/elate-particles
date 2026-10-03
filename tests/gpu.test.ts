@@ -548,6 +548,18 @@ describe("GPU frustum culling", () => {
     expect(r.reads).toHaveLength(1); // still waiting: no new measurement
   });
 
+  it("measures at most every GPU_BOUNDS_INTERVAL seconds", async () => {
+    const { r, w, cam } = setup();
+    w.update(1 / 60, cam);
+    await r.reads[0].land(boundsWords([ahead]));
+    w.update(1 / 60, cam);
+    w.update(1 / 60, cam);
+    expect(r.reads).toHaveLength(1); // landed, but too soon for the next
+    w.update(1 / 60, cam);
+    w.update(1 / 60, cam);
+    expect(r.reads).toHaveLength(2); // 4 frames ≥ 1/15 s
+  });
+
   it("keeps instances visible until bounds arrive, then culls them, hides their lanes and skips the draw", async () => {
     const { r, w, cam, h, visibleFlag } = setup();
     w.update(1 / 60, cam);

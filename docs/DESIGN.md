@@ -292,7 +292,8 @@ one draw, with zero depth inversions and 283 switches between members along the 
 
 The CPU can't see GPU particles, so each pool measures them:
 
-1. **Measure.** While the world frustum-culls, a pool with no read in flight resets 8 counters per lane, then runs a
+1. **Measure.** While the world frustum-culls, a pool with no read in flight measures at most every
+   `GPU_BOUNDS_INTERVAL` (1/15 s, about every 4th frame; readings are used late and widened for their age anyway). It resets 8 counters per lane, then runs a
    2D dispatch: one 64-thread workgroup per chunk of a lane (`y` = lane), so a workgroup never spans two instances.
    Each workgroup reduces its particles' world AABB, max speed² and max size in workgroup memory (6 halving steps
    with barriers, no early returns, so control flow stays uniform). It then does one `atomicMin`/`atomicMax` per
@@ -321,6 +322,23 @@ The CPU can't see GPU particles, so each pool measures them:
    - Distance-culled instances benefit the same way.
    - Checked on real WebGPU: a row of 24 torches alternating shown and culled drew as 8 merged ranges, and a 400 ×
      300 render matched the whole draw pixel for pixel.
+
+GPU time, measured with timestamp queries: 256 GPU torches × 2,048 particles, rendered at 1920 × 1080, 186 of them
+behind the camera.
+
+| Mode | Instances drawn | Render | Compute |
+| --- | --- | --- | --- |
+| No culling | 524,288 | 4.2–4.65 ms | 0.50–0.59 ms |
+| Culled, hidden but drawn whole (before range draws) | 524,288 | 4.22 ms | 0.85–0.89 ms |
+| Culled, drawn in ranges, measuring every frame | 143,360 | 1.35 ms | 0.82–0.85 ms |
+| Culled, drawn in ranges, measuring at 15 Hz | 143,360 | 1.50–1.53 ms | 0.64–0.68 ms |
+
+Notes:
+- Hiding alone saves nothing: the vertex shader still runs for every hidden instance. The saving comes from the
+  range draws.
+- Measuring every frame cost about 0.35 ms of compute. At 15 Hz it costs about 0.1 ms.
+- The net saving here is about 2.9 ms of GPU time per frame. The culled instances were still simulated; with
+  `pauseOffscreen` their update work would go too.
 
 Checked in the browser:
 - A torch's cull box contained its real particle extent with about 0.15 units of margin per side.

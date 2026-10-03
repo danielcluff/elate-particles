@@ -113,6 +113,13 @@ interface Kernels {
 // ---------------------------------------------------------------------------
 
 /** Pools for some of an effect's emitters (a sub-emitter-closed group), sharing lane numbers. */
+/**
+ * Seconds between bounds measurements per pool (≈ every 4th frame at 60 fps).
+ * Readings are used a few frames late and widened for their age anyway; one
+ * measurement pass over a 524k-particle pool cost ~0.35 ms of GPU time.
+ */
+export const GPU_BOUNDS_INTERVAL = 1 / 15;
+
 /** Most draws one pool mesh issues for its shown lane ranges (more runs merge across the smallest hidden gaps). */
 export const MAX_RANGE_DRAWS = 8;
 
@@ -338,6 +345,8 @@ export class GpuPool {
   #trail: THREE.StorageBufferAttribute | null = null;
   /** The lane-move kernel (compaction), built on first use for the current buffers. */
   #move: { kernel: Node; from: Node; to: Node } | null = null;
+  /** World time of the last bounds measurement (see GPU_BOUNDS_INTERVAL). */
+  #measuredAt = -Infinity;
   /** Bounds measurement for frustum culling, created when the world first culls. */
   #bounds: GpuBounds | null = null;
   readonly #trailPoints: number;
@@ -1056,7 +1065,8 @@ export class GpuPool {
       lane: (l) => this.laneValues(l),
     });
     const b = this.#bounds;
-    if (b.busy) return;
+    if (b.busy || now - this.#measuredAt < GPU_BOUNDS_INTERVAL) return;
+    this.#measuredAt = now;
     // who owned each lane, and where its instance was, when measured (lanes can change hands before the read lands)
     const W = this.layout.width;
     const owners = this.#owners.slice(0, span);
