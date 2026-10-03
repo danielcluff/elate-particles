@@ -1,0 +1,196 @@
+{
+  "format": "tsl-particles",
+  "version": 1,
+  "id": "torch",
+  "name": "GPU Torch",
+  "emitters": [
+    {
+      "id": "flame",
+      "name": "flame",
+      "duration": 1,
+      "looping": true,
+      "startDelay": 0,
+      "maxParticles": 2048,
+      "space": "world",
+      "spawn": [
+        {
+          "id": "flame.spawn.rate",
+          "type": "spawn.rate",
+          "params": {
+            "rate": 1200
+          }
+        }
+      ],
+      "init": [
+        {
+          "id": "flame.init.lifetime",
+          "type": "init.lifetime",
+          "params": {
+            "lifetime": {
+              "kind": "range",
+              "min": 0.6,
+              "max": 1.1
+            }
+          }
+        },
+        {
+          "id": "flame.init.shape",
+          "type": "init.shape",
+          "params": {
+            "shape": "cone",
+            "radius": 0.15,
+            "thickness": 1,
+            "angle": 12,
+            "arc": 360,
+            "boxSize": [
+              1,
+              1,
+              1
+            ],
+            "length": 1,
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "speed": {
+              "kind": "range",
+              "min": 1,
+              "max": 2.2
+            },
+            "randomDirection": 0
+          }
+        },
+        {
+          "id": "flame.init.size",
+          "type": "init.size",
+          "params": {
+            "size": {
+              "kind": "range",
+              "min": 0.08,
+              "max": 0.16
+            }
+          }
+        },
+        {
+          "id": "flame.init.color",
+          "type": "init.color",
+          "params": {
+            "color": {
+              "kind": "randomGradient",
+              "gradient": {
+                "colors": [
+                  {
+                    "t": 0,
+                    "color": "#ff5010"
+                  },
+                  {
+                    "t": 1,
+                    "color": "#ffc040"
+                  }
+                ],
+                "alphas": [
+                  {
+                    "t": 0,
+                    "a": 1
+                  }
+                ],
+                "intensity": 3
+              }
+            }
+          }
+        }
+      ],
+      "update": [
+        {
+          "id": "flame.update.turbulence",
+          "type": "update.turbulence",
+          "params": {
+            "strength": 2,
+            "frequency": 1.2,
+            "scroll": 1
+          }
+        },
+        {
+          "id": "flame.update.drag",
+          "type": "update.drag",
+          "params": {
+            "drag": 0.8
+          }
+        }
+      ],
+      "render": [
+        {
+          "id": "flame.render.sizeOverLife",
+          "type": "render.sizeOverLife",
+          "params": {
+            "curve": {
+              "keys": [
+                {
+                  "t": 0,
+                  "v": 1
+                },
+                {
+                  "t": 1,
+                  "v": 0.2
+                }
+              ],
+              "interp": "smooth"
+            }
+          }
+        },
+        {
+          "id": "flame.render.colorOverLife",
+          "type": "render.colorOverLife",
+          "params": {
+            "gradient": {
+              "colors": [
+                {
+                  "t": 0,
+                  "color": "#ffffff"
+                },
+                {
+                  "t": 1,
+                  "color": "#802010"
+                }
+              ],
+              "alphas": [
+                {
+                  "t": 0,
+                  "a": 0
+                },
+                {
+                  "t": 0.1,
+                  "a": 1
+                },
+                {
+                  "t": 1,
+                  "a": 0
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "renderers": [
+        {
+          "type": "sprite",
+          "blend": "additive",
+          "shape": "glow",
+          "facing": "camera",
+          "id": "flame.r0"
+        }
+      ],
+      "sim": "gpu"
+    }
+  ],
+  "parameters": [],
+  "scalability": {
+    "maxInstances": 128
+  }
+}

@@ -13,7 +13,8 @@ export { createLutTexture, PARTICLE_ATTRIBUTES, PARTICLE_STRIDE, type ParticleMa
 export { createBuiltinMesh, isBuiltinMesh } from "./geometries";
 /** @deprecated renamed to ParticleMaterialContext */
 export type { ParticleMaterialContext as SpriteMaterialContext } from "./materials/common";
-export { GpuEmitter, gpuSupport } from "./gpu/emitter";
+export { GpuEmitter, GpuPool, GpuPoolSet, gpuSupport, gpuPartners, MAX_GPU_TARGETS, type GpuDraw } from "./gpu/emitter";
+export { GpuSorter } from "./gpu/sort";
 export { registerGpuModule, getGpuModule, type GpuModuleImpl } from "./gpu/modules";
-export { GpuBuildContext, type GpuParticle } from "./gpu/context";
+export { GpuBuildContext, LaneLayout, LaneValues, LANE, type GpuParticle, type FrameInfo } from "./gpu/context";
 export { WorkerParticleWorld, WorkerParticleEffect, type ParticlePort, type WorkerParticleWorldOptions } from "./worker-world";

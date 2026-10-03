@@ -5,7 +5,6 @@
 import { If, abs, clamp, cos, cross, dot, float, length, max, normalize, select, sin, sqrt, vec3, vec4 } from "three/tsl";
 import { turbulenceField } from "./noise";
 import type { ColorValue, FloatValue, Vec3 } from "../../core/types";
-import { compileFloat } from "../../core/values";
 import { quatFromEulerDeg, isIdentityQuat } from "../../sim/math";
 import type { Node } from "../materials/common";
 import { rotateQ, type GpuBuildContext, type GpuParticle } from "./context";
@@ -30,15 +29,6 @@ export function getGpuModule(type: string): GpuModuleImpl | undefined {
   return registry.get(type);
 }
 
-/** Update-stage FloatValues are sampled over particle age on the CPU; on the GPU only age-independent kinds work. */
-function ageCurve(...values: unknown[]): string | null {
-  for (const v of values) {
-    const k = typeof v === "object" && v ? (v as { kind?: string }).kind : undefined;
-    if (k === "curve" || k === "rangeCurve") return "curves over particle age aren't supported on the GPU";
-  }
-  return null;
-}
-
 /** Uniform random unit vector from two randoms. */
 function randomDir(u: Node, phi: Node): Node {
   const z: Node = u.mul(2).sub(1);
@@ -53,12 +43,8 @@ function randomDir(u: Node, phi: Node): Node {
 registerGpuModule("init.lifetime", {
   emit(p, ctx, params) {
     const v = params.lifetime as FloatValue;
+    // (the CPU's live-count upper bound reads init.lifetime from the template: GpuEmitter)
     p.life.assign(max(ctx.float(v, 1, 101), 1e-3));
-    // the CPU's live-count estimate needs an upper bound: the largest lifetime evaluated so far
-    const c = compileFloat(v, 1);
-    const st = ctx.state;
-    let maxSeen = 0;
-    ctx.lifetimeMax = () => (maxSeen = Math.max(maxSeen, c.sample(st.cycleT, 0, st.params), c.sample(st.cycleT, 1, st.params)));
   },
 });
 
@@ -180,7 +166,6 @@ registerGpuModule("update.gravity", {
 });
 
 registerGpuModule("update.force", {
-  unsupported: (params) => ageCurve(params.scale),
   emit(p, ctx, params) {
     const f = params.force as Vec3;
     const dirNode = params.space === "local" ? ctx.localDirToSim(f) : ctx.worldDirToSim(f);
@@ -189,7 +174,6 @@ registerGpuModule("update.force", {
 });
 
 registerGpuModule("update.drag", {
-  unsupported: (params) => ageCurve(params.drag),
   emit(p, ctx, params) {
     p.vel.mulAssign(float(1).div(max(ctx.float(params.drag as FloatValue, 0.5, 901), 0).mul(ctx.u.dt).add(1)));
   },
@@ -226,7 +210,6 @@ registerGpuModule("update.vortex", {
 });
 
 registerGpuModule("update.turbulence", {
-  unsupported: (params) => ageCurve(params.strength),
   emit(p, ctx, params) {
     const freq = params.frequency as number;
     const scroll = params.scroll as number;
@@ -238,7 +221,6 @@ registerGpuModule("update.turbulence", {
 });
 
 registerGpuModule("update.limitVelocity", {
-  unsupported: (params) => ageCurve(params.maxSpeed),
   emit(p, ctx, params) {
     const m: Node = ctx.float(params.maxSpeed as FloatValue, 5, 1101);
     const dampen = params.dampen as number;

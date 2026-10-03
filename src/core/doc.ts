@@ -192,12 +192,12 @@ export function validateStructure(doc: EffectDoc): Issue[] {
     if (e.sim === "gpu") {
       // structural features the GPU simulator can't do; module-level support is checked by the runtime
       const why: string[] = [];
-      if (e.subEmitters?.length) why.push("sub-emitters");
-      if (doc.emitters.some((o) => o.subEmitters?.some((s) => s.emitter === e.id))) why.push("being a sub-emitter target");
+      // sub-emitter events only flow GPU → GPU: both ends must ask for the GPU
+      const partners = [...(e.subEmitters ?? []).map((s) => s.emitter), ...doc.emitters.filter((o) => o.subEmitters?.some((s) => s.emitter === e.id)).map((o) => o.id)];
+      if (partners.some((id) => doc.emitters.find((o) => o.id === id)?.sim !== "gpu")) why.push("sub-emitters with a CPU partner");
       for (const r of e.renderers ?? []) {
         if (r.enabled === false) continue;
         if (r.type === "ribbon") why.push("ribbon renderers");
-        if (r.sort && r.sort !== "none") why.push("sorting");
         if (r.type === "sprite" && r.sortGroup) why.push("sort groups");
       }
       if (why.length) issues.push({ level: "warning", message: `GPU simulation doesn't support ${[...new Set(why)].join(", ")}; this emitter will run on the CPU`, emitterId: e.id });

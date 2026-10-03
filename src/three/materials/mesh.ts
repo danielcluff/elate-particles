@@ -41,7 +41,8 @@ export function createMeshMaterial(tpl: EmitterTemplate, r: MeshRendererDoc, lut
   const age: Node = pA.w;
   const seed: Node = pB.w;
   const ol = overLife(lut, age);
-  const size: Node = pC.x.mul(ol.size);
+  // (GPU pools hide distance-culled instances with a negative size)
+  const size: Node = max(pC.x, 0).mul(ol.size);
   const rot: Node = pC.y;
 
   const orient = (v: Node): Node => {

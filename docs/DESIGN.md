@@ -122,7 +122,8 @@ How ribbons work:
 
 ### GPU simulation (`sim: "gpu"`)
 
-For very large emitters (100k+ particles), an emitter can simulate on the GPU with TSL compute:
+For very large emitters (100k+ particles), or many instances of one effect, an emitter can simulate on the GPU with
+TSL compute:
 
 ```ts
 const world = new ParticleWorld({ renderer }); // the WebGPURenderer, needed to dispatch compute
@@ -130,34 +131,140 @@ const world = new ParticleWorld({ renderer }); // the WebGPURenderer, needed to 
 ```
 
 - **Same data, same materials.** GPU particles use the CPU path's layout (four vec4s, `pA`–`pD`), stored in
-  `StorageInstancedBufferAttribute`s on the emitter's geometry. Compute kernels write them with `storage()`; the
+  `StorageInstancedBufferAttribute`s on the pool's geometry. Compute kernels write them with `storage()`; the
   regular sprite and mesh materials read them as instanced attributes. Nothing is read back to the CPU.
 - **Spawning stays on the CPU.** It produces one number per emitter per frame. `EmitterSim` forwards it to the GPU
   target (`GpuSpawnTarget`) instead of creating CPU particles, so spawn timing, bursts, distance spawning, LOD and the
   budget work unchanged.
-- **Ring-buffer allocation, no atomics.** Each frame's spawns take the next `n` slots of a ring of `maxParticles`
-  slots. If an emitter outruns its capacity, the oldest particles are recycled.
-- **Three kernels per emitter instance:**
-  - clear: on play, kills every slot;
-  - init: dispatched over just the new particles;
-  - update: over every slot; dead slots return early, and on death size goes to 0 so the instance draws nothing.
+- **Batched across instances** (see below): every instance of an effect shares its emitters' pools, kernels and
+  draw calls. Each instance owns a *lane* of `maxParticles` slots.
+- **Ring-buffer allocation.** Each frame's spawns take the next `n` slots of the lane's ring. If an instance outruns
+  its capacity, its oldest particles are recycled. The ring heads live on the GPU, because sub-emitter events
+  allocate from them too.
+- **Kernels per pool (all instances at once):**
+  - clear: kills the slots of lanes flagged by play, acquire or release, and resets their counters;
+  - prep (a thread per lane): claims each lane's CPU-driven spawns from its ring head, snapshots the incoming event
+    count and writes the indirect dispatch size for the event kernel;
+  - init: one thread per spawned particle over all lanes. Each thread finds its lane by binary search over the
+    lanes' spawn prefix sums. Threads past the frame's total return, because dispatches round up to whole workgroups;
+  - events (sub-emitter targets only): dispatched indirectly, sized on the GPU;
+  - update: over the lanes up to the highest one in use. Dead slots return early, and on death size goes to 0 so the
+    instance draws nothing;
+  - sort (sorted renderers only), see below.
 - **Values on the GPU.** Each built-in init/update module has a TSL implementation (`three/gpu/modules.ts`,
-  extensible with `registerGpuModule`). FloatValues and ColorValues collapse to per-frame uniforms: the CPU evaluates
-  their bounds at the emitter's cycle time (`sample(t, r = 0)` and `sample(t, r = 1)` covers constants, ranges, curves
-  and parameter bindings alike) and the kernel mixes by a per-particle hash. Uniforms pull those values through
-  `onRenderUpdate`, because a TSL `Fn` body only runs when the kernel compiles, inside the first `compute()`.
+  extensible with `registerGpuModule`). Constants and ranges compile to constants. Values that change over the
+  emitter's cycle (curves, parameter bindings) get **lane slots**. Each frame the CPU evaluates their bounds per
+  instance at its cycle time (`sample(t, r = 0)` and `sample(t, r = 1)`) into the instance's row of the lane
+  texture, and the kernel mixes by a per-particle hash. Slots are allocated while kernels build, so a pool compiles
+  its kernels with empty dispatches before the first frame's data is written. A browser check gave two instances with
+  parameter `s` = 0.25 and 3 exactly those sizes and force scales.
+- **Curves over particle age** in update modules (`update.force` scale, drag, turbulence strength, speed limit) are
+  baked like the CPU's tables into a small half-float texture, the lower curve in R and the upper in G, sampled by
+  age and mixed by a per-particle random. A force curve checked numerically on both backends agrees to 4 significant
+  figures (the remaining difference is half-float precision).
 - **Same look as the CPU.** Turbulence uses a TSL port of the CPU's Perlin noise with the same permutation table (in
   a storage buffer), so the noise field is identical. Side-by-side checks show the same shapes for cone emission +
   gravity + drag + ground bounce, for vortex, and for turbulence. (An earlier version using MaterialX noise visibly
   differed.) Individual particles differ: the random streams aren't the same.
 - **What the CPU knows.** It can't see GPU particles, so it keeps an upper-bound live count from spawn records and the
-  largest lifetime evaluated. That drives stats, the budget and when an effect finishes. GPU emitters skip frustum
-  culling; distance culling and LOD still apply through the effect's position.
+  largest lifetime evaluated. Spawn records also flow along sub-emitter links: a target counts `count` particles per
+  source particle, born up to one source lifetime later for death events. That drives stats, the budget and when an
+  effect finishes. GPU emitters skip frustum culling; distance culling and LOD still apply through the effect's
+  position.
 - **Falls back to the CPU** (one warning listing the reasons) for: no `renderer` option, the WebGL fallback backend,
-  sub-emitters, ribbon renderers, sorting, sort groups, curves over particle age in update modules, or modules without
-  a GPU implementation. `sim: "gpu"` is always safe to set.
-- **Per instance, not batched.** Each GPU emitter instance has its own buffers, kernels and draw call. GPU emitters
-  are for a few huge effects, not many small ones; CPU batching remains better for those.
+  ribbon renderers, sort groups, modules without a GPU implementation, more than 3 sub-emitter targets, or a
+  sub-emitter partner (source or target) that stays on the CPU. Events don't cross between the two simulators, so
+  partners move together. `sim: "gpu"` is always safe to set.
+
+#### Batching GPU emitters across instances
+
+The GPU path batches the way the CPU path does: one pool per (effect, GPU emitter) serves every instance.
+
+- **Lanes.** A pool holds `lanes × maxParticles` slots, where slot = lane × `maxParticles` + i. Each instance gets
+  one lane in every pool of its effect. The instance's per-frame values live in its row of the pool's **lane
+  texture** (RGBA32F, uploaded once per frame): position, previous position, rotation, scale, velocity, time, dt, spawn
+  count and prefix, event scale, visibility, clear flag, then module slots. It is a texture rather than a storage
+  buffer so kernels stay within 8 storage buffers. Modules read the same names they always did (`ctx.u.position`,
+  `ctx.u.dt`...), now resolved per lane.
+- **Instances that weren't stepped** (paused, or culled and looping) have dt 0, so the update kernel leaves their
+  particles alone.
+- **Hiding culled instances.** A distance-culled instance hides by flipping its particles' size negative; materials
+  clamp size at 0. That keeps it within the shared draw call and works for sorted copies too.
+- **Growing.** A set starts at 4 lanes, or `scalability.maxInstances` when the effect declares it, and doubles when
+  full. Live particles and counters are copied across with a compute kernel. Lanes come last in the counter buffer,
+  so growing only appends. WGSL declares storage arrays without a length and the lane count is a uniform, so growth
+  rebuilds nodes but reuses the compiled pipelines. Replaced geometries are disposed only once the buffers they draw
+  are retired (disposing a geometry destroys every buffer it uses).
+- **Freeing lanes.** Released instances free their lanes right away; pooled sims hold no GPU memory. Free lanes are
+  handed out lowest first, and draws and updates cover only up to the highest lane in use, so a pool that once peaked
+  costs little afterwards.
+- **Local space.** A sub-emitter group containing a local-space emitter gets a single-lane set per instance: its
+  meshes are placed with the instance's matrix, as before.
+- **Sorting covers every instance** of a pool together, so overlapping smoke from two instances interleaves
+  correctly. A readback of two instances: 20,024 particles, zero depth inversions, 9,872 switches between instances
+  in draw order.
+
+Measured with 10 × 10 and 20 × 20 grids of a 2k-particle GPU torch (additive, turbulence), against the previous
+per-instance version:
+
+| Instances | Per instance: update / render submit / frame / draws | Batched: update / render submit / frame / draws |
+| --- | --- | --- |
+| 100 | 1.72 ms / 0.70 ms / 16.6 ms / 101 | 1.24 ms / 0.62 ms / 16.6 ms / 2 |
+| 400 | 22.7 ms / 3.6 ms / 34.7 ms (29 fps) / 401 | 2.7 ms / 0.52 ms / 16.6 ms (60 fps) / 2 |
+
+(Draw counts include the scene's campfire. In the batched runs most of the remaining update time is the 100–400
+CPU-side effect simulations deciding spawn counts.)
+
+#### GPU sub-emitters
+
+Birth and death events stay on the GPU, with no readback:
+
+1. **A source particle appends an event** to its target when it is born (init and event kernels) or dies (update
+   kernel). `atomicAdd` on the target pool's event counter gives the event its index. A second `atomicAdd` on the
+   ring head of the same lane in the target **reserves the event's slots right away**, so spawning needs no further
+   allocation. Pools of a sub-emitter group share lane numbers. The event stores the lane, slot base, world position,
+   count, inherited velocity and colour.
+2. **Count and probability are decided per event:** count × the target's LOD/budget scale, stochastically rounded,
+   0 when LOD switched the target off.
+3. **The target's prep kernel** snapshots the event count, resets it, and writes the event kernel's
+   `dispatchWorkgroupsIndirect` arguments (`events × maxCountPerEvent / 64`).
+4. **The event kernel** runs one thread per (event, particle) pair. Threads past an event's count return. It runs
+   the target's init modules, places the particle at the event like the CPU path does, and can emit birth events of
+   its own, so chains work (rockets → bursts → embers in the playground's *GPU events* scene).
+
+Events emitted by a source that dispatches after its target are spawned the next frame, as on the CPU.
+
+- **One buffer per target.** Counters, slot bases and the event payload (floats stored as bits) share one atomic u32
+  buffer per pool. A source's kernels therefore bind 4 particle buffers, its own counters and one buffer per
+  target, within WebGPU's default limit of 8 storage buffers per shader stage. That is where the 3-target limit
+  comes from.
+- **Capacity.** A target pool holds up to `min(65536, max(1024, maxParticles))` events per frame across all its
+  instances; extra events are dropped.
+
+Measured: the volley scene (3 GPU emitters, 1,500-particle bursts, ~1 in 7 stars leaving an ember) runs at 60 fps
+with 0.55 ms of CPU per frame.
+
+#### GPU sorting
+
+A sprite or mesh renderer with `sort` on a GPU emitter sorts on the GPU:
+
+1. A key kernel writes one key per slot: negative view depth, or age in seconds for the age modes. Dead slots and
+   the power-of-two padding get huge keys, so they sort to the end.
+2. A bitonic sort orders (key, slot) pairs. Each of the `log2(n)·(log2(n)+1)/2` passes is its own compute node with
+   constant `(k, j)` uniforms. They share one shader and pipeline and are encoded in a **single
+   `renderer.compute([...])` call**: one compute pass, one submit per frame.
+3. A gather kernel copies the particles into a sorted copy of the four buffers. It is split in two halves to stay
+   within 8 storage buffers.
+
+Only the sorted renderers' meshes read the sorted copy; the emitter's other renderers keep the unsorted buffers. A
+readback of a 32k-capacity smoke emitter (120 passes) showed every live particle in far-to-near order and every dead
+slot after them, at 60 fps and 0.9 ms of CPU per frame for the scene. Distance sorting needs the camera passed to
+`update`; without it the last order stands.
+- **First use stalls.** three compiles compute pipelines synchronously on first dispatch. Expect a hitch the first
+  time a GPU effect plays (longer with sorting: about 120 small kernels for 32k particles); later instances share the
+  pool's kernels. Play a GPU effect once behind a loading screen to warm them up.
+- **Memory.** Every instance reserves a full lane of `maxParticles` slots (64 bytes each), and a pool keeps its peak
+  size.
 
 Measured (this machine, browser): a 250k-capacity swarm (60k/s, vortex + turbulence + drag) runs at 60 fps with
 **0.4 ms** of CPU time per frame and ~240k live particles. The same effect on the CPU took 22–62 ms per frame
@@ -382,8 +489,9 @@ Measured on this machine:
 else is ~15–20 ns per particle.
 
 **Known gaps:** none from the original list. All six runtime gaps (renderers, sorting, soft particles, budget/LOD,
-multiple renderers, GPU and worker simulation) are closed. Candidates next: GPU sub-emitters (event buffers + atomics),
-batching GPU emitters across instances, and per-particle lights.
+multiple renderers, GPU and worker simulation) are closed, and GPU emitters now cover sub-emitters, sorting,
+curves over age and batching across instances. Candidates next: GPU ribbons and sort groups, GPU frustum culling
+(bounds via atomics), shrinking GPU pools after a peak, and per-particle lights.
 
 ### three.js and framework compatibility
 

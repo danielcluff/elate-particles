@@ -142,8 +142,13 @@ effects that don't overlap smoke out of the group: they're cheaper on their own.
 ## GPU emitters
 
 Pass the renderer (`renderer: this.Renderer`) and big ambient effects can run on the GPU with `"sim": "gpu"`: nebula
-dust around a station, a debris field, a sun's corona. Keep gameplay effects (explosions, trails, impacts) on the CPU:
-they're small, many, batched, and use sub-emitters and ribbons, which the GPU path doesn't support.
+dust around a station, a debris field, a sun's corona, alpha-blended smoke from a burning capital ship (sorted on the
+GPU). Sub-emitters work when both ends are `"sim": "gpu"`, so a large set-piece (a fleet-wide fireworks salute, a
+shattering asteroid shedding dust) can stay entirely on the GPU. GPU instances of one effect are batched into one
+pool and draw call, so many copies of a GPU effect are fine too: engine glow on every ship of a fleet, running lights
+along a station. Set `scalability.maxInstances` on those to size the pool up front. Each instance reserves its full
+`maxParticles`, so keep that tight. Keep gameplay effects with ribbons or sort groups on the CPU (those are CPU-only).
+Play each GPU effect once during loading: three compiles compute pipelines on first use.
 
 ## Worker simulation
 

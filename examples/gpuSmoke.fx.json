@@ -1,0 +1,261 @@
+{
+  "format": "tsl-particles",
+  "version": 1,
+  "id": "gpuSmoke",
+  "name": "GPU Smoke",
+  "emitters": [
+    {
+      "id": "smoke",
+      "name": "smoke",
+      "duration": 1,
+      "looping": true,
+      "startDelay": 0,
+      "maxParticles": 32768,
+      "space": "world",
+      "spawn": [
+        {
+          "id": "smoke.spawn.rate",
+          "type": "spawn.rate",
+          "params": {
+            "rate": 5000
+          }
+        }
+      ],
+      "init": [
+        {
+          "id": "smoke.init.lifetime",
+          "type": "init.lifetime",
+          "params": {
+            "lifetime": {
+              "kind": "range",
+              "min": 4,
+              "max": 6
+            }
+          }
+        },
+        {
+          "id": "smoke.init.shape",
+          "type": "init.shape",
+          "params": {
+            "shape": "circle",
+            "radius": 1.2,
+            "thickness": 1,
+            "angle": 25,
+            "arc": 360,
+            "boxSize": [
+              1,
+              1,
+              1
+            ],
+            "length": 1,
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "speed": {
+              "kind": "range",
+              "min": 0.2,
+              "max": 0.6
+            },
+            "randomDirection": 0
+          }
+        },
+        {
+          "id": "smoke.init.velocity",
+          "type": "init.velocity",
+          "params": {
+            "velocity": [
+              0,
+              2,
+              0
+            ],
+            "spread": [
+              0.3,
+              0.4,
+              0.3
+            ]
+          }
+        },
+        {
+          "id": "smoke.init.size",
+          "type": "init.size",
+          "params": {
+            "size": {
+              "kind": "range",
+              "min": 0.5,
+              "max": 0.9
+            }
+          }
+        },
+        {
+          "id": "smoke.init.rotation",
+          "type": "init.rotation",
+          "params": {
+            "angle": {
+              "kind": "range",
+              "min": 0,
+              "max": 360
+            },
+            "spin": {
+              "kind": "range",
+              "min": -30,
+              "max": 30
+            }
+          }
+        },
+        {
+          "id": "smoke.init.color",
+          "type": "init.color",
+          "params": {
+            "color": {
+              "kind": "randomGradient",
+              "gradient": {
+                "colors": [
+                  {
+                    "t": 0,
+                    "color": "#2a2622"
+                  },
+                  {
+                    "t": 0.5,
+                    "color": "#6d655c"
+                  },
+                  {
+                    "t": 1,
+                    "color": "#d8d0c4"
+                  }
+                ],
+                "alphas": [
+                  {
+                    "t": 0,
+                    "a": 1
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "update": [
+        {
+          "id": "smoke.update.turbulence",
+          "type": "update.turbulence",
+          "params": {
+            "strength": 1.2,
+            "frequency": 0.35,
+            "scroll": 0.3
+          }
+        },
+        {
+          "id": "smoke.update.drag",
+          "type": "update.drag",
+          "params": {
+            "drag": 0.6
+          }
+        },
+        {
+          "id": "smoke.update.force",
+          "type": "update.force",
+          "params": {
+            "force": [
+              1,
+              0,
+              0
+            ],
+            "space": "world",
+            "scale": {
+              "kind": "curve",
+              "curve": {
+                "keys": [
+                  {
+                    "t": 0,
+                    "v": 0
+                  },
+                  {
+                    "t": 0.4,
+                    "v": 0
+                  },
+                  {
+                    "t": 1,
+                    "v": 1.5
+                  }
+                ],
+                "interp": "smooth"
+              }
+            }
+          }
+        }
+      ],
+      "render": [
+        {
+          "id": "smoke.render.sizeOverLife",
+          "type": "render.sizeOverLife",
+          "params": {
+            "curve": {
+              "keys": [
+                {
+                  "t": 0,
+                  "v": 0.4
+                },
+                {
+                  "t": 1,
+                  "v": 2.2
+                }
+              ],
+              "interp": "smooth"
+            }
+          }
+        },
+        {
+          "id": "smoke.render.colorOverLife",
+          "type": "render.colorOverLife",
+          "params": {
+            "gradient": {
+              "colors": [
+                {
+                  "t": 0,
+                  "color": "#ffffff"
+                }
+              ],
+              "alphas": [
+                {
+                  "t": 0,
+                  "a": 0
+                },
+                {
+                  "t": 0.1,
+                  "a": 0.8
+                },
+                {
+                  "t": 0.7,
+                  "a": 0.5
+                },
+                {
+                  "t": 1,
+                  "a": 0
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "renderers": [
+        {
+          "type": "sprite",
+          "blend": "alpha",
+          "shape": "softCircle",
+          "facing": "camera",
+          "sort": "distance",
+          "id": "smoke.r0"
+        }
+      ],
+      "sim": "gpu"
+    }
+  ],
+  "parameters": []
+}

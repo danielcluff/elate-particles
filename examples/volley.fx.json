@@ -1,0 +1,452 @@
+{
+  "format": "tsl-particles",
+  "version": 1,
+  "id": "volley",
+  "name": "GPU Volley",
+  "emitters": [
+    {
+      "id": "rockets",
+      "name": "rockets",
+      "duration": 1,
+      "looping": true,
+      "startDelay": 0,
+      "maxParticles": 512,
+      "space": "world",
+      "spawn": [
+        {
+          "id": "rockets.spawn.rate",
+          "type": "spawn.rate",
+          "params": {
+            "rate": 14
+          }
+        }
+      ],
+      "init": [
+        {
+          "id": "rockets.init.lifetime",
+          "type": "init.lifetime",
+          "params": {
+            "lifetime": {
+              "kind": "range",
+              "min": 1.2,
+              "max": 1.8
+            }
+          }
+        },
+        {
+          "id": "rockets.init.shape",
+          "type": "init.shape",
+          "params": {
+            "shape": "box",
+            "radius": 0.5,
+            "thickness": 1,
+            "angle": 25,
+            "arc": 360,
+            "boxSize": [
+              40,
+              0,
+              20
+            ],
+            "length": 1,
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "speed": 0,
+            "randomDirection": 0
+          }
+        },
+        {
+          "id": "rockets.init.velocity",
+          "type": "init.velocity",
+          "params": {
+            "velocity": [
+              0,
+              17,
+              0
+            ],
+            "spread": [
+              2.5,
+              3,
+              2.5
+            ]
+          }
+        },
+        {
+          "id": "rockets.init.size",
+          "type": "init.size",
+          "params": {
+            "size": 0.18
+          }
+        },
+        {
+          "id": "rockets.init.color",
+          "type": "init.color",
+          "params": {
+            "color": {
+              "kind": "constant",
+              "color": "#ffd9a0",
+              "intensity": 4
+            }
+          }
+        }
+      ],
+      "update": [
+        {
+          "id": "rockets.update.gravity",
+          "type": "update.gravity",
+          "params": {
+            "gravity": [
+              0,
+              -9.81,
+              0
+            ],
+            "scale": 1
+          }
+        }
+      ],
+      "render": [],
+      "renderers": [
+        {
+          "type": "sprite",
+          "blend": "additive",
+          "shape": "glow",
+          "facing": "camera",
+          "id": "rockets.r0"
+        }
+      ],
+      "sim": "gpu",
+      "subEmitters": [
+        {
+          "trigger": "death",
+          "emitter": "burst",
+          "count": 1500,
+          "inheritVelocity": 0.3,
+          "inheritColor": false
+        }
+      ]
+    },
+    {
+      "id": "burst",
+      "name": "burst",
+      "duration": 1,
+      "looping": true,
+      "startDelay": 0,
+      "maxParticles": 131072,
+      "space": "world",
+      "spawn": [],
+      "init": [
+        {
+          "id": "burst.init.lifetime",
+          "type": "init.lifetime",
+          "params": {
+            "lifetime": {
+              "kind": "range",
+              "min": 1.2,
+              "max": 2.2
+            }
+          }
+        },
+        {
+          "id": "burst.init.shape",
+          "type": "init.shape",
+          "params": {
+            "shape": "sphere",
+            "radius": 0.1,
+            "thickness": 0,
+            "angle": 25,
+            "arc": 360,
+            "boxSize": [
+              1,
+              1,
+              1
+            ],
+            "length": 1,
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "speed": {
+              "kind": "range",
+              "min": 4,
+              "max": 10
+            },
+            "randomDirection": 0
+          }
+        },
+        {
+          "id": "burst.init.size",
+          "type": "init.size",
+          "params": {
+            "size": {
+              "kind": "range",
+              "min": 0.04,
+              "max": 0.09
+            }
+          }
+        },
+        {
+          "id": "burst.init.color",
+          "type": "init.color",
+          "params": {
+            "color": {
+              "kind": "randomGradient",
+              "gradient": {
+                "colors": [
+                  {
+                    "t": 0,
+                    "color": "#ff4060"
+                  },
+                  {
+                    "t": 0.33,
+                    "color": "#ffd040"
+                  },
+                  {
+                    "t": 0.66,
+                    "color": "#40ff90"
+                  },
+                  {
+                    "t": 1,
+                    "color": "#4080ff"
+                  }
+                ],
+                "alphas": [
+                  {
+                    "t": 0,
+                    "a": 1
+                  }
+                ],
+                "intensity": 4
+              }
+            }
+          }
+        }
+      ],
+      "update": [
+        {
+          "id": "burst.update.gravity",
+          "type": "update.gravity",
+          "params": {
+            "gravity": [
+              0,
+              -9.81,
+              0
+            ],
+            "scale": 0.35
+          }
+        },
+        {
+          "id": "burst.update.drag",
+          "type": "update.drag",
+          "params": {
+            "drag": {
+              "kind": "curve",
+              "curve": {
+                "keys": [
+                  {
+                    "t": 0,
+                    "v": 0.3
+                  },
+                  {
+                    "t": 0.25,
+                    "v": 2.5
+                  },
+                  {
+                    "t": 1,
+                    "v": 3
+                  }
+                ],
+                "interp": "smooth"
+              }
+            }
+          }
+        }
+      ],
+      "render": [
+        {
+          "id": "burst.render.colorOverLife",
+          "type": "render.colorOverLife",
+          "params": {
+            "gradient": {
+              "colors": [
+                {
+                  "t": 0,
+                  "color": "#ffffff"
+                }
+              ],
+              "alphas": [
+                {
+                  "t": 0,
+                  "a": 1
+                },
+                {
+                  "t": 0.7,
+                  "a": 1
+                },
+                {
+                  "t": 1,
+                  "a": 0
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "renderers": [
+        {
+          "type": "sprite",
+          "blend": "additive",
+          "shape": "glow",
+          "facing": "camera",
+          "id": "burst.r0"
+        }
+      ],
+      "sim": "gpu",
+      "eventDriven": true,
+      "subEmitters": [
+        {
+          "trigger": "death",
+          "emitter": "embers",
+          "count": 1,
+          "probability": 0.15,
+          "inheritColor": true
+        }
+      ]
+    },
+    {
+      "id": "embers",
+      "name": "embers",
+      "duration": 1,
+      "looping": true,
+      "startDelay": 0,
+      "maxParticles": 32768,
+      "space": "world",
+      "spawn": [],
+      "init": [
+        {
+          "id": "embers.init.lifetime",
+          "type": "init.lifetime",
+          "params": {
+            "lifetime": {
+              "kind": "range",
+              "min": 1,
+              "max": 1.6
+            }
+          }
+        },
+        {
+          "id": "embers.init.shape",
+          "type": "init.shape",
+          "params": {
+            "shape": "point",
+            "radius": 0.5,
+            "thickness": 1,
+            "angle": 25,
+            "arc": 360,
+            "boxSize": [
+              1,
+              1,
+              1
+            ],
+            "length": 1,
+            "offset": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "speed": {
+              "kind": "range",
+              "min": 0.2,
+              "max": 0.6
+            },
+            "randomDirection": 0
+          }
+        },
+        {
+          "id": "embers.init.size",
+          "type": "init.size",
+          "params": {
+            "size": {
+              "kind": "range",
+              "min": 0.05,
+              "max": 0.08
+            }
+          }
+        }
+      ],
+      "update": [
+        {
+          "id": "embers.update.gravity",
+          "type": "update.gravity",
+          "params": {
+            "gravity": [
+              0,
+              -9.81,
+              0
+            ],
+            "scale": 0.08
+          }
+        },
+        {
+          "id": "embers.update.turbulence",
+          "type": "update.turbulence",
+          "params": {
+            "strength": 1.5,
+            "frequency": 0.6,
+            "scroll": 0.5
+          }
+        }
+      ],
+      "render": [
+        {
+          "id": "embers.render.sizeOverLife",
+          "type": "render.sizeOverLife",
+          "params": {
+            "curve": {
+              "keys": [
+                {
+                  "t": 0,
+                  "v": 1
+                },
+                {
+                  "t": 1,
+                  "v": 0
+                }
+              ],
+              "interp": "smooth"
+            }
+          }
+        }
+      ],
+      "renderers": [
+        {
+          "type": "sprite",
+          "blend": "additive",
+          "shape": "glow",
+          "facing": "camera",
+          "id": "embers.r0"
+        }
+      ],
+      "sim": "gpu",
+      "eventDriven": true
+    }
+  ],
+  "parameters": []
+}

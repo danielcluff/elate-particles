@@ -3,7 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { pass } from "three/tsl";
 import { ParticleWorld, WorkerParticleWorld, type ParticleEffect, type WorkerParticleEffect } from "../src/three";
 import { validateEffect } from "../src/index";
-import { ALL_EFFECTS, campfire, explosion, firework, swarm, thruster, tracer } from "./effects";
+import { ALL_EFFECTS, campfire, explosion, firework, gpuSmoke, swarm, thruster, torch, tracer, volley } from "./effects";
 
 const renderer = new THREE.WebGPURenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -160,7 +160,47 @@ const scenes: Record<string, Scene> = {
     enter() {
       camera.position.set(0, 14, 26);
       controls.target.set(0, 2, 0);
-      live.push(world.spawn(swarm, { autoRelease: false, position: new THREE.Vector3(0, 3, 0) }));
+      live.push(world.spawn(swarm, { autoRelease: false, position: new THREE.Vector3(-6, 3, 0) }));
+      live.push(world.spawn(gpuSmoke, { autoRelease: false, position: new THREE.Vector3(8, 0, 0) }));
+    },
+    update() {},
+    exit() {
+      clearLive();
+      camera.position.set(5, 3.5, 7);
+      controls.target.set(0, 1.5, 0);
+    },
+  },
+  crowd: {
+    // 100 GPU torches: one pool, one draw call (batched across instances); every 2 s one is replaced
+    enter() {
+      camera.position.set(0, 26, 34);
+      controls.target.set(0, 0, 0);
+      for (let x = 0; x < 10; x++) for (let z = 0; z < 10; z++) live.push(world.spawn(torch, { autoRelease: false, position: new THREE.Vector3(x * 4 - 18, 0, z * 4 - 18) }));
+      timer = 0;
+    },
+    update(dt, t) {
+      // the corner torch circles: per-instance transforms are per lane
+      live[0]?.setPosition(-18 + Math.cos(t) * 3, 0, -18 + Math.sin(t) * 3);
+      timer += dt;
+      if (timer > 2 && live.length > 1) {
+        timer = 0;
+        const i = 1 + Math.floor(Math.random() * (live.length - 1));
+        const p = live[i].sim!.transform.position;
+        live[i].release();
+        live[i] = world.spawn(torch, { autoRelease: false, position: new THREE.Vector3(p[0], 0, p[2]) });
+      }
+    },
+    exit() {
+      clearLive();
+      camera.position.set(5, 3.5, 7);
+      controls.target.set(0, 1.5, 0);
+    },
+  },
+  volley: {
+    enter() {
+      camera.position.set(0, 10, 42);
+      controls.target.set(0, 12, 0);
+      live.push(world.spawn(volley, { autoRelease: false }));
     },
     update() {},
     exit() {

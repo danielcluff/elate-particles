@@ -41,7 +41,8 @@ export function createSpriteMaterial(tpl: EmitterTemplate, r: SpriteRendererDoc,
 
   // ---- vertex: billboard in view space --------------------------------------
   const corner: Node = positionGeometry.xy;
-  const size: Node = pC.x.mul(ol.size);
+  // (GPU pools hide distance-culled instances with a negative size)
+  const size: Node = max(pC.x, 0).mul(ol.size);
   const rot: Node = pC.y;
   const c: Node = cos(rot);
   const s: Node = sin(rot);

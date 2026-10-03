@@ -8,19 +8,24 @@ import { uniform } from "three/tsl";
 import type { EffectDoc, MeshRendererDoc, RendererDoc } from "../core/types";
 import { compileEffect, type EffectTemplate } from "../sim/compile";
 import { EffectSim } from "../sim/effect";
-import type { EmitterSim } from "../sim/emitter";
 import type { EmitterTemplate } from "../sim/compile";
 import { InstanceBatch, ParticleBatch, RibbonBatch, type SortView } from "./batch";
 import { createBuiltinMesh } from "./geometries";
 import { SortGroup } from "./sort-group";
-import { GpuEmitter, gpuSupport } from "./gpu/emitter";
+import { GpuPoolSet, gpuPartners, gpuSupport, type GpuDraw, type GpuEmitter } from "./gpu/emitter";
 
-/** A GPU-simulated emitter of one effect instance and the meshes drawing it. */
-interface GpuInstance {
-  emitter: EmitterSim;
-  gpu: GpuEmitter;
-  meshes: THREE.Mesh[];
+/** An effect instance's GPU lanes: in its effect's shared pools, and in its own pools for local-space emitters. */
+interface GpuAttachment {
+  /** Every lane of the instance (shared and local). */
+  lanes: GpuEmitter[];
+  shared: GpuPoolSet | null;
+  /** The lanes acquired from `shared`, as it returned them (release takes the same list back). */
+  sharedLanes: GpuEmitter[];
+  local: GpuPoolSet | null;
 }
+
+/** Initial lanes of an effect's shared GPU pools (they double as instances arrive). */
+const GPU_INITIAL_LANES = 4;
 import { createLutTexture, type MaterialOptions, type ParticleMaterialContext } from "./materials/common";
 import { createMeshMaterial } from "./materials/mesh";
 import { createRibbonMaterial } from "./materials/ribbon";
@@ -98,8 +103,16 @@ interface Registered {
   batches: InstanceBatch[];
   /** Per emitter index: one target per enabled renderer (its own batch, or a sort group's batch + member index). */
   emitterBatches: { batch: InstanceBatch; member: number }[][];
-  /** Per emitter index: the materials for each renderer when it runs on the GPU, else null. */
-  gpuMaterials: ({ renderer: RendererDoc; material: THREE.Material }[] | null)[];
+  /** Per emitter index: its renderers when it runs on the GPU, else null. */
+  gpuDraws: (GpuDraw[] | null)[];
+  /**
+   * GPU emitters batched across instances (one shared pool set), and those in
+   * a pool set per instance: sub-emitter groups with a local-space emitter,
+   * whose meshes follow the instance.
+   */
+  gpuShared: number[];
+  gpuLocal: number[];
+  gpuPools: GpuPoolSet | null;
   materials: THREE.Material[];
   luts: THREE.Texture[];
   pool: EffectSim[];
@@ -308,27 +321,35 @@ export class ParticleWorld {
       template,
       batches: [],
       emitterBatches: [],
-      gpuMaterials: [],
+      gpuDraws: [],
+      gpuShared: [],
+      gpuLocal: [],
+      gpuPools: null,
       materials: [],
       luts: [],
       pool: [],
       live: old?.live ?? [],
       looping: template.emitters.some((e) => e.looping),
     };
+    const onGpu = this.#gpuPlacement(template.emitters, doc);
     for (const e of template.emitters) {
       // one LUT per emitter, shared by its renderers
       const lut = createLutTexture(e);
       if (lut) reg.luts.push(lut);
       const list: { batch: InstanceBatch; member: number }[] = [];
-      if (e.doc.sim === "gpu" && this.#gpuReady(e, doc)) {
-        // GPU emitters draw their own instanced meshes (per instance) with shared materials
-        const mats = e.renderers.map((r) => ({ renderer: r, material: this.#createMaterial(e, r, lut) }));
-        for (const m of mats) reg.materials.push(m.material);
-        reg.gpuMaterials.push(mats);
+      if (onGpu[e.index]) {
+        // GPU emitters draw from their pools' meshes (one per renderer for every instance) with shared materials
+        const draws: GpuDraw[] = e.renderers.map((r) => ({
+          renderer: r,
+          material: this.#createMaterial(e, r, lut),
+          base: r.type === "mesh" ? this.#meshGeometry(e, r) : () => new THREE.PlaneGeometry(1, 1),
+        }));
+        for (const d of draws) reg.materials.push(d.material);
+        reg.gpuDraws.push(draws);
         reg.emitterBatches.push(list);
         continue;
       }
-      reg.gpuMaterials.push(null);
+      reg.gpuDraws.push(null);
       for (const r of e.renderers) {
         if (r.type === "sprite" && r.sortGroup && r.blend !== "opaque") {
           const group = this.#group(r.sortGroup);
@@ -349,6 +370,7 @@ export class ParticleWorld {
       }
       reg.emitterBatches.push(list);
     }
+    this.#splitGpu(reg, onGpu);
     this.#effects.set(doc.id, reg);
 
     if (old) {
@@ -458,8 +480,9 @@ export class ParticleWorld {
       if (j >= 0) reg.live.splice(j, 1);
       // only recycle sims built from the current template (not ones orphaned by a re-register)
       if (sim.template === reg.template) reg.pool.push(sim);
-      else this.#disposeGpu(sim);
-    } else this.#disposeGpu(sim);
+    }
+    // lanes go back to the pool set (cleared on its next dispatch); a respawn acquires new ones
+    this.#disposeGpu(sim);
   }
 
   /** Global detail level 0..1 (see ParticleWorldOptions.quality). */
@@ -549,6 +572,8 @@ export class ParticleWorld {
       }
       const farCulled = !!(view && sc?.cullDistance && dist > sc.cullDistance);
       h._culled = farCulled;
+      const gpu = this.#gpuOf.get(sim);
+      if (gpu) for (const g of gpu.lanes) g.begin(!farCulled);
       // looping effects pause while out of range, or off-screen when asked to
       if (farCulled && reg.looping) continue;
       // paused, not culled: its frozen bounds are still frustum-tested below, so it resumes once in view
@@ -573,8 +598,7 @@ export class ParticleWorld {
 
       const wasAlive = sim.alive;
       sim.step(dt);
-      const gpu = this.#gpuOf.get(sim);
-      if (gpu) for (const g of gpu) g.gpu.dispatch(this.#opts.renderer!, sim, dt);
+      if (gpu) for (const g of gpu.lanes) g.stage(sim, dt);
       simulated += sim.particleCount;
       // budget load: what this instance would hold at budget scale 1, or its actual count if exempt
       for (const em of sim.emitters) {
@@ -594,7 +618,12 @@ export class ParticleWorld {
     const bb = this.#bounds;
     for (const reg of this.#effects.values()) for (const b of reg.batches) b.begin();
     for (const g of this.#groups.values()) g.batch.begin();
-    for (const gi of this.#gpuInstances) for (const m of gi.meshes) m.visible = false;
+    // GPU pools: every instance's kernels at once, after all of them have stepped
+    const renderer = this.#opts.renderer!;
+    for (const set of this.#gpuSets) {
+      set.dispatch(renderer, view);
+      set.updateMeshes(null);
+    }
     for (const h of active) {
       const sim = h.sim!;
       if (sim.state === "stopped" && sim.particleCount === 0) continue;
@@ -604,14 +633,9 @@ export class ParticleWorld {
       }
       const gpu = this.#gpuOf.get(sim);
       if (gpu) {
-        // the CPU can't see GPU particles: always visible, local-space meshes follow the effect
-        for (const g of gpu) {
-          drawn += g.emitter.particleCount;
-          for (const m of g.meshes) {
-            m.visible = true;
-            if (g.emitter.template.space === "local") m.matrix.fromArray(sim.matrix);
-          }
-        }
+        // the CPU can't see GPU particles: always "visible" (culled lanes hide on the GPU); local-space pools follow the effect
+        for (const g of gpu.lanes) drawn += g.emitter.particleCount;
+        gpu.local?.updateMeshes(sim.matrix);
       }
       if (frustum && !gpu) {
         h._visible = sim.worldBounds(bb) && frustum.intersectsBox(box.set(box.min.set(bb[0], bb[1], bb[2]), box.max.set(bb[3], bb[4], bb[5])));
@@ -655,7 +679,7 @@ export class ParticleWorld {
     let drawCalls = 0;
     for (const reg of this.#effects.values()) for (const b of reg.batches) if (b.instances > 0) drawCalls++;
     for (const g of this.#groups.values()) if (g.batch.instances > 0) drawCalls++;
-    for (const gi of this.#gpuInstances) for (const m of gi.meshes) if (m.visible) drawCalls++;
+    for (const set of this.#gpuSets) drawCalls += set.drawCalls;
     const f = this.#frameStats;
     return {
       effects: this.#effects.size,
@@ -708,12 +732,18 @@ export class ParticleWorld {
     for (const t of reg.luts) t.dispose();
     for (const sim of reg.pool) this.#disposeGpu(sim);
     reg.pool.length = 0;
+    if (reg.gpuPools) {
+      this.#gpuSets.delete(reg.gpuPools);
+      reg.gpuPools.dispose();
+      reg.gpuPools = null;
+    }
   }
 
   // ---- GPU emitters ------------------------------------------------------------
 
-  readonly #gpuOf = new WeakMap<EffectSim, GpuInstance[]>();
-  readonly #gpuInstances = new Set<GpuInstance>();
+  readonly #gpuOf = new WeakMap<EffectSim, GpuAttachment>();
+  /** Every pool set to dispatch: effects' shared sets and per-instance ones. */
+  readonly #gpuSets = new Set<GpuPoolSet>();
   #gpuWarned = new Set<string>();
 
   /** Whether emitter `e` can run on the GPU; warns once with the reasons when it can't. */
@@ -731,45 +761,89 @@ export class ParticleWorld {
     return false;
   }
 
-  #attachGpu(reg: Registered, sim: EffectSim): void {
-    if (this.#gpuOf.has(sim) || !reg.gpuMaterials.some(Boolean)) return;
-    const list: GpuInstance[] = [];
-    for (const em of sim.emitters) {
-      const mats = reg.gpuMaterials[em.template.index];
-      if (!mats) continue;
-      const gpu = new GpuEmitter(em.template, em);
-      em.gpu = gpu;
-      const meshes = mats.map(({ renderer, material }) => {
-        const base = renderer.type === "mesh" ? this.#meshGeometry(em.template, renderer)() : new THREE.PlaneGeometry(1, 1);
-        const mesh = new THREE.Mesh(gpu.geometryFor(base), material);
-        base.dispose();
-        mesh.name = `particles:gpu:${em.template.doc.name}:${renderer.type}`;
-        mesh.frustumCulled = false;
-        mesh.matrixAutoUpdate = false;
-        mesh.renderOrder = renderer.sortOrder ?? 0;
-        mesh.visible = false;
-        this.object.add(mesh);
-        return mesh;
-      });
-      const gi: GpuInstance = { emitter: em, gpu, meshes };
-      list.push(gi);
-      this.#gpuInstances.add(gi);
+  /**
+   * Which emitters run on the GPU: those asking for it that can, minus any
+   * whose sub-emitter partner (source or target) stays on the CPU, since
+   * events don't cross between the two.
+   */
+  #gpuPlacement(emitters: EmitterTemplate[], doc: EffectDoc): boolean[] {
+    const on = emitters.map((e) => e.doc.sim === "gpu" && this.#gpuReady(e, doc));
+    for (let changed = true; changed; ) {
+      changed = false;
+      for (const e of emitters) {
+        if (!on[e.index]) continue;
+        const off = gpuPartners(e, emitters).find((j) => !on[j]);
+        if (off === undefined) continue;
+        on[e.index] = false;
+        changed = true;
+        this.#warn(`tsl-particles: "${doc.name}" / ${e.doc.name} runs on the CPU instead of the GPU: its sub-emitter partner ${emitters[off].doc.name} runs on the CPU (set sim: "gpu" on both)`);
+      }
     }
-    this.#gpuOf.set(sim, list);
+    return on;
+  }
+
+  /** Sorts GPU emitters into the shared (batched) set or per-instance sets, by sub-emitter group. */
+  #splitGpu(reg: Registered, onGpu: boolean[]): void {
+    const emitters = reg.template.emitters;
+    const seen = new Set<number>();
+    for (const e of emitters) {
+      if (!onGpu[e.index] || seen.has(e.index)) continue;
+      // the sub-emitter group: events address the same lane in every pool of a set
+      const group: number[] = [];
+      const stack = [e.index];
+      while (stack.length) {
+        const i = stack.pop()!;
+        if (seen.has(i)) continue;
+        seen.add(i);
+        group.push(i);
+        stack.push(...gpuPartners(emitters[i], emitters).filter((j) => onGpu[j]));
+      }
+      const local = group.some((i) => emitters[i].space === "local");
+      (local ? reg.gpuLocal : reg.gpuShared).push(...group.sort((a, b) => a - b));
+    }
+    reg.gpuShared.sort((a, b) => a - b);
+    reg.gpuLocal.sort((a, b) => a - b);
+  }
+
+  #attachGpu(reg: Registered, sim: EffectSim): void {
+    if (this.#gpuOf.has(sim) || (!reg.gpuShared.length && !reg.gpuLocal.length)) return;
+    const emitters = reg.template.emitters;
+    const at: GpuAttachment = { lanes: [], shared: null, sharedLanes: [], local: null };
+    if (reg.gpuShared.length) {
+      if (!reg.gpuPools) {
+        // sized for maxInstances when the effect declares it (growing rebuilds the kernels)
+        const lanes = Math.max(1, reg.template.doc.scalability?.maxInstances ?? GPU_INITIAL_LANES);
+        reg.gpuPools = new GpuPoolSet(emitters, reg.gpuShared, reg.gpuDraws, this.object, lanes, true);
+        this.#gpuSets.add(reg.gpuPools);
+      }
+      const lanes = reg.gpuPools.acquire(sim);
+      if (lanes) {
+        at.shared = reg.gpuPools;
+        at.sharedLanes = lanes;
+        at.lanes.push(...lanes);
+      } else this.#warn(`tsl-particles: "${reg.template.doc.name}" has more GPU instances than its pools can hold; extra instances simulate nothing on the GPU`);
+    }
+    if (reg.gpuLocal.length) {
+      // local-space groups: a single-lane set per instance, its meshes placed at the instance
+      at.local = new GpuPoolSet(emitters, reg.gpuLocal, reg.gpuDraws, this.object, 1, false);
+      at.lanes.push(...at.local.acquire(sim)!);
+      this.#gpuSets.add(at.local);
+    }
+    this.#gpuOf.set(sim, at);
   }
 
   #teleportGpu(sim: EffectSim): void {
-    for (const g of this.#gpuOf.get(sim) ?? []) g.gpu.teleport(sim);
+    for (const g of this.#gpuOf.get(sim)?.lanes ?? []) g.teleport(sim);
   }
 
   #disposeGpu(sim: EffectSim): void {
-    const list = this.#gpuOf.get(sim);
-    if (!list) return;
-    for (const g of list) {
-      for (const m of g.meshes) m.removeFromParent();
-      g.gpu.dispose();
-      g.emitter.gpu = null;
-      this.#gpuInstances.delete(g);
+    const at = this.#gpuOf.get(sim);
+    if (!at) return;
+    at.shared?.release(at.sharedLanes);
+    if (at.local) {
+      this.#gpuSets.delete(at.local);
+      at.local.dispose();
+      for (const g of at.lanes) if (g.emitter.gpu === g) g.emitter.gpu = null;
     }
     this.#gpuOf.delete(sim);
   }

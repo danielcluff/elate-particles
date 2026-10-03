@@ -272,9 +272,9 @@ export interface EmitterDoc {
   /**
    * Where particles are simulated. "gpu" runs init/update on the GPU (TSL
    * compute) for very large emitters; spawning stays on the CPU. Unsupported
-   * features (sub-emitters, ribbons, sorting, sort groups, curves over age in
-   * update modules) or a missing WebGPU renderer fall back to "cpu" with a
-   * warning. Default "cpu".
+   * features (ribbons, sort groups, sub-emitters whose partner is on the CPU)
+   * or a missing WebGPU renderer fall back to "cpu" with a warning. Default
+   * "cpu".
    */
   sim?: "cpu" | "gpu";
   spawn: ModuleInstance[];
