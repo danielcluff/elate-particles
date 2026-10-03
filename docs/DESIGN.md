@@ -131,7 +131,27 @@ needs `world.update(dt, camera)`), `oldestOnTop`, `newestOnTop`.
   O(n), no comparator, no steady-state allocation. Cost is about 26 ns per particle, mostly the permutation copy:
   0.5 ms for 20k particles, 3 ms for 100k (`scripts/bench-sort.ts`). Turn it on only where blending needs it (alpha or
   premultiplied smoke); additive emitters are order-independent.
-- Between emitters, `sortOrder` (the mesh's `renderOrder`) decides.
+- Between batches, `sortOrder` (the mesh's `renderOrder`) decides, unless they share a sort group (below).
+
+**Sort groups: alpha (and additive) across emitters and effects.** Separate draw calls can't interleave by depth, so
+two alpha emitters, or fire behind and in front of smoke, would always layer in one fixed order. Sprite renderers with
+the same `sortGroup` name, in any emitter of any effect, are merged into **one draw call sorted back to front
+together**:
+
+- **One blend state for alpha and additive.** The group draws with premultiplied blending (One, OneMinusSrcAlpha):
+  alpha members output (rgb·a, a), additive members (rgb·a, 0). Smoke in front of fire dims it; fire in front of smoke
+  adds over it.
+- **Per-renderer data in a table texture.** Members differ in over-life curves, shape, facing, softness, stretch,
+  additive vs alpha, depth/camera fade and flipbook. Each member has three rows (colour LUT, size LUT, parameters) in
+  a half-float table texture, and each particle carries its member index in the spare `pC.w` slot. One "uber" sprite
+  shader (`materials/group.ts`) reads the row. Adding or removing members rewrites rows; the shader is rebuilt only
+  when the table grows or the group gets its texture.
+- **Limits.** Sprites only. Textured members of a group must share one texture (an atlas); a member with a different
+  texture, or `blend: "opaque"`, is drawn on its own with a warning. A group always sorts by distance. The uber
+  fragment shader evaluates every shape mask, so it costs more per pixel than a dedicated sprite material; group only
+  what actually overlaps.
+- Measured: the campfire's fire, smoke and embers become one draw call (3 → 1) and the explosion goes from 8 to 5. A
+  top-down A/B shows smoke now veiling the fire it rises in front of, where before the fire always drew on top.
 
 ### Scalability: budget, LOD, culling
 
@@ -273,9 +293,7 @@ else is ~15–20 ns per particle.
 1. **GPU compute backend.** Same `EffectDoc`, with modules supplying a TSL implementation next to the CPU one, for
    100k+ particle emitters (`emitter.sim: "cpu" | "gpu"`, as in Niagara). The CPU path stays the default because it
    supports gameplay callbacks, sub-emitters and determinism cheaply.
-2. **Cross-emitter sorting.** Particles sort within an emitter; between emitters, `sortOrder` decides (as in Unity and
-   Niagara). Interleaving two alpha emitters correctly would need merging their batches.
-3. A **worker simulation** if main-thread time gets tight (SoA buffers are transferable).
+2. A **worker simulation** if main-thread time gets tight (SoA buffers are transferable).
 
 ### three.js and framework compatibility
 
@@ -435,7 +453,7 @@ on it. That's the only change Phase 3 asks of tsl-graph.
 | --- | --- | --- |
 | **1** ✅ | Runtime library | Core, 20 modules, CPU sim, batched TSL sprite/mesh/ribbon renderers, Redshift adapter, examples, tests, playground |
 | 1.1 | Redshift adoption | Wire `ParticleWorld` into `Game.ts`; thrusters on ships; replace `EffectSpawner`; delete the old particle system |
-| 1.2 | Runtime gaps | ✅ mesh + ribbon renderers, per-particle trails, multiple renderers per emitter, sorting, soft particles + camera fade, budget/LOD/culling |
+| 1.2 | Runtime gaps | ✅ mesh + ribbon renderers, per-particle trails, multiple renderers per emitter, sorting + sort groups, soft particles + camera fade, budget/LOD/culling |
 | **2** | Effect editor | Stack UI, value widgets, timeline, viewport, store and undo, MCP + AI chat, `particle` graph kind in tsl-graph |
 | 2.1 | GPU backend | TSL compute implementations for built-in modules, `sim: "gpu"` per emitter |
 | **3** | FX studio | Monorepo, `studio-kit` extraction, asset model, prefabs, unified MCP, export bundle |

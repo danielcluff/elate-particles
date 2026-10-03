@@ -20,7 +20,7 @@ export const PARTICLE_ATTRIBUTES = {
   a: "pA",
   /** xyz world velocity, w seed */
   b: "pB",
-  /** x size, y rotation, z lifetime (s), w unused */
+  /** x size, y rotation, z lifetime (s), w sort-group member index (0 otherwise) */
   c: "pC",
   /** linear RGBA base colour */
   d: "pD",

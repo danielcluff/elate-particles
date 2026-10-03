@@ -132,6 +132,13 @@ particles.registerGeometry("hull-shard", gltf.scene.getObjectByName("Shard").geo
 - `pauseOffscreen` suits ambient loops (station vents, nebula sparkle), not gameplay effects whose state should
   advance off-screen.
 
+## Sort groups
+
+Give the alpha-blended smoke/dust sprites, and the fire and glows that sit among them, one `sortGroup` (e.g. `"fx"`)
+across effects. Smoke from one explosion then layers correctly against fire from another, and with engine haze, in a
+single draw call. The examples' campfire and explosion already share `"fx"`. Keep tracers, sparks and other additive
+effects that don't overlap smoke out of the group: they're cheaper on their own.
+
 ## Notes
 
 - **Units.** Effects are authored in world units. Use `scale` on spawn (or the component) to resize an effect per use,

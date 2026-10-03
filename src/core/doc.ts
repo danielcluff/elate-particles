@@ -172,6 +172,10 @@ export function validateStructure(doc: EffectDoc): Issue[] {
         const v = r.type !== "mesh" ? r[key] : undefined;
         if (v !== undefined && !(v >= 0)) issues.push({ level: "error", message: `${key} must be ≥ 0`, ...where });
       }
+      if (r.type === "sprite" && r.sortGroup !== undefined) {
+        if (typeof r.sortGroup !== "string" || !r.sortGroup) issues.push({ level: "error", message: "sortGroup must be a non-empty string", ...where });
+        else if (r.blend === "opaque") issues.push({ level: "warning", message: "Opaque sprites can't join a sort group; drawn on their own", ...where });
+      }
       if (r.sort !== undefined && !["none", "distance", "oldestOnTop", "newestOnTop"].includes(r.sort))
         issues.push({ level: "error", message: `Unknown sort mode "${String(r.sort)}"`, ...where });
       if (r.type === "ribbon" && r.mode !== "particle" && e.maxParticles > 2000)

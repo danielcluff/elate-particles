@@ -21,10 +21,16 @@ export interface SortView {
   fz: number;
 }
 
+/** What a batch needs to know about what it draws: an EmitterTemplate, or a sort group. */
+export interface BatchSource {
+  doc: { name: string };
+  capacity: number;
+}
+
 /** Shared instanced-buffer management; subclasses decide what an instance is. */
 export abstract class InstanceBatch {
   readonly mesh: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.Material>;
-  readonly template: EmitterTemplate;
+  readonly template: BatchSource;
   /** The renderer this batch draws (one batch per renderer per emitter). */
   readonly renderer: RendererDoc;
   protected data: Float32Array;
@@ -46,7 +52,7 @@ export abstract class InstanceBatch {
    *   because disposing a geometry frees its attributes' GPU buffers)
    * @param attributes vec4 attribute names, laid out consecutively in each instance's `stride` floats
    */
-  constructor(template: EmitterTemplate, renderer: RendererDoc, material: THREE.Material, base: () => THREE.BufferGeometry, stride: number, attributes: readonly string[], capacity: number) {
+  constructor(template: BatchSource, renderer: RendererDoc, material: THREE.Material, base: () => THREE.BufferGeometry, stride: number, attributes: readonly string[], capacity: number) {
     this.template = template;
     this.renderer = renderer;
     this.#stride = stride;
@@ -76,7 +82,7 @@ export abstract class InstanceBatch {
   abstract get particles(): number;
 
   /** Appends an emitter's live particles. `matrix` is set for local-space emitters. */
-  abstract pack(sim: EmitterSim, matrix: Float32Array | null): void;
+  abstract pack(sim: EmitterSim, matrix: Float32Array | null, member?: number): void;
 
   #makeBuffer(): THREE.InstancedInterleavedBuffer {
     const b = new THREE.InstancedInterleavedBuffer(this.data, this.#stride, 1);
@@ -174,7 +180,7 @@ export abstract class InstanceBatch {
 /** One instance per particle: sprites (quad) and meshes (any geometry). */
 export class ParticleBatch extends InstanceBatch {
   constructor(
-    template: EmitterTemplate,
+    template: BatchSource,
     renderer: RendererDoc,
     material: THREE.Material,
     base: () => THREE.BufferGeometry = () => new THREE.PlaneGeometry(1, 1),
@@ -187,7 +193,8 @@ export class ParticleBatch extends InstanceBatch {
     return this.count;
   }
 
-  pack(sim: EmitterSim, matrix: Float32Array | null): void {
+  /** @param member written to the spare `pC.w` slot (sort groups use it to look up per-renderer data) */
+  pack(sim: EmitterSim, matrix: Float32Array | null, member = 0): void {
     const b = sim.buf;
     const n = b.count;
     if (n === 0) return;
@@ -208,6 +215,7 @@ export class ParticleBatch extends InstanceBatch {
         out[o + 8] = size[i];
         out[o + 9] = rot[i];
         out[o + 10] = life[i];
+        out[o + 11] = member;
         out[o + 12] = r[i];
         out[o + 13] = g[i];
         out[o + 14] = bl[i];
@@ -231,6 +239,7 @@ export class ParticleBatch extends InstanceBatch {
         out[o + 8] = size[i] * sc;
         out[o + 9] = rot[i];
         out[o + 10] = life[i];
+        out[o + 11] = member;
         out[o + 12] = r[i];
         out[o + 13] = g[i];
         out[o + 14] = bl[i];

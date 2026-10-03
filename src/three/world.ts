@@ -11,6 +11,7 @@ import { EffectSim } from "../sim/effect";
 import type { EmitterTemplate } from "../sim/compile";
 import { InstanceBatch, ParticleBatch, RibbonBatch, type SortView } from "./batch";
 import { createBuiltinMesh } from "./geometries";
+import { SortGroup } from "./sort-group";
 import { createLutTexture, type MaterialOptions, type ParticleMaterialContext } from "./materials/common";
 import { createMeshMaterial } from "./materials/mesh";
 import { createRibbonMaterial } from "./materials/ribbon";
@@ -79,8 +80,8 @@ interface Registered {
   template: EffectTemplate;
   /** Every batch (begin/end/dispose). */
   batches: InstanceBatch[];
-  /** Per emitter index: one batch per enabled renderer. */
-  emitterBatches: InstanceBatch[][];
+  /** Per emitter index: one target per enabled renderer (its own batch, or a sort group's batch + member index). */
+  emitterBatches: { batch: InstanceBatch; member: number }[][];
   materials: THREE.Material[];
   luts: THREE.Texture[];
   pool: EffectSim[];
@@ -275,6 +276,7 @@ export class ParticleWorld {
     const template = compileEffect(doc);
     const old = this.#effects.get(doc.id);
     if (old) this.#disposeRegistered(old);
+    for (const g of this.#groups.values()) g.removeEffect(doc.id);
 
     const reg: Registered = {
       template,
@@ -290,12 +292,23 @@ export class ParticleWorld {
       // one LUT per emitter, shared by its renderers
       const lut = createLutTexture(e);
       if (lut) reg.luts.push(lut);
-      const list: InstanceBatch[] = [];
+      const list: { batch: InstanceBatch; member: number }[] = [];
       for (const r of e.renderers) {
+        if (r.type === "sprite" && r.sortGroup && r.blend !== "opaque") {
+          const group = this.#group(r.sortGroup);
+          const member = group.add(doc.id, e, r);
+          if (member !== null) {
+            list.push({ batch: group.batch, member });
+            continue;
+          }
+          console.warn(
+            `tsl-particles: "${doc.name}" / ${e.doc.name} can't join sort group "${r.sortGroup}" (its texture differs from the group's); drawn on its own`,
+          );
+        }
         const { batch, material } = this.#createBatch(e, r, lut);
         reg.materials.push(material);
         reg.batches.push(batch);
-        list.push(batch);
+        list.push({ batch, member: 0 });
         this.object.add(batch.mesh);
       }
       reg.emitterBatches.push(list);
@@ -333,6 +346,7 @@ export class ParticleWorld {
     if (!reg) return;
     for (const h of [...this.#active]) if (h.effectId === id) h.release();
     this.#disposeRegistered(reg);
+    for (const g of this.#groups.values()) g.removeEffect(id);
     this.#effects.delete(id);
   }
 
@@ -465,8 +479,8 @@ export class ParticleWorld {
       }
     } else if (!this.#warnedNoCamera) {
       for (const reg of this.#effects.values())
-        if (reg.template.emitters.some((em) => em.renderers.some((r) => r.sort === "distance"))) {
-          console.warn('tsl-particles: an emitter uses sort: "distance" but ParticleWorld.update() was called without a camera; it is drawn unsorted');
+        if (reg.template.emitters.some((em) => em.renderers.some((r) => r.sort === "distance" || (r.type === "sprite" && r.sortGroup)))) {
+          console.warn('tsl-particles: an emitter uses sort: "distance" or a sortGroup but ParticleWorld.update() was called without a camera; it is drawn unsorted');
           this.#warnedNoCamera = true;
           break;
         }
@@ -533,6 +547,7 @@ export class ParticleWorld {
     const box = this.#box;
     const bb = this.#bounds;
     for (const reg of this.#effects.values()) for (const b of reg.batches) b.begin();
+    for (const g of this.#groups.values()) g.batch.begin();
     for (const h of active) {
       const sim = h.sim!;
       if (sim.state === "stopped" && sim.particleCount === 0) continue;
@@ -553,10 +568,11 @@ export class ParticleWorld {
         if (list.length === 0) continue;
         drawn += e.buf.count; // once per emitter, however many renderers draw it
         const m = e.template.space === "local" ? sim.matrix : null;
-        for (let k = 0; k < list.length; k++) list[k].pack(e, m);
+        for (let k = 0; k < list.length; k++) list[k].batch.pack(e, m, list[k].member);
       }
     }
     for (const reg of this.#effects.values()) for (const b of reg.batches) b.end(view);
+    for (const g of this.#groups.values()) g.batch.end(view);
 
     // budget, feedforward: particle counts lag spawn decisions by a lifetime, so
     // reacting to the live count oscillates. Instead predict the steady population
@@ -580,6 +596,7 @@ export class ParticleWorld {
   get stats(): ParticleWorldStats {
     let drawCalls = 0;
     for (const reg of this.#effects.values()) for (const b of reg.batches) if (b.instances > 0) drawCalls++;
+    for (const g of this.#groups.values()) if (g.batch.instances > 0) drawCalls++;
     const f = this.#frameStats;
     return {
       effects: this.#effects.size,
@@ -593,6 +610,23 @@ export class ParticleWorld {
     };
   }
 
+  readonly #groups = new Map<string, SortGroup>();
+
+  #group(name: string): SortGroup {
+    let g = this.#groups.get(name);
+    if (!g) {
+      g = new SortGroup(name, { time: this.time, loadTexture: this.#loadTexture, hook: this.#opts.materialHook });
+      this.#groups.set(name, g);
+      this.object.add(g.batch.mesh);
+    }
+    return g;
+  }
+
+  /** Sort groups and how many renderers each holds (diagnostics). */
+  get sortGroups(): { name: string; members: number }[] {
+    return [...this.#groups.values()].map((g) => ({ name: g.name, members: g.memberCount }));
+  }
+
   #disposeRegistered(reg: Registered): void {
     for (const b of reg.batches) b.dispose();
     for (const m of reg.materials) m.dispose();
@@ -604,6 +638,8 @@ export class ParticleWorld {
     for (const h of [...this.#active]) h.release();
     for (const reg of this.#effects.values()) this.#disposeRegistered(reg);
     this.#effects.clear();
+    for (const g of this.#groups.values()) g.dispose();
+    this.#groups.clear();
     for (const t of this.#textures.values()) t.dispose();
     this.#textures.clear();
     this.object.removeFromParent();

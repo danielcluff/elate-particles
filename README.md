@@ -9,6 +9,8 @@ Data-driven particle effects for three.js (WebGPU / TSL).
 - **Sprite, mesh and ribbon renderers**, several per emitter if you like (a spark head *and* its trail): billboards with flipbooks and velocity stretch; tumbling or velocity-aligned
   instanced meshes (built-ins or your own geometry); camera-facing ribbons, either one strip per emitter (tracers, engine trails) or a trail behind every particle (sparks,
   fireworks).
+- **Sort groups**: alpha and additive sprites from different emitters and effects share one depth-sorted draw call,
+  so smoke in front of fire actually dims it.
 - **Batched rendering.** Every live instance of an emitter shares one instanced draw call, so 1,900 explosions render
   in 6 draw calls.
 - **Scalability**: a world particle budget (feedforward, no oscillation), quality tiers, distance LOD and culling,

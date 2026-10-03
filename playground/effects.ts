@@ -277,6 +277,13 @@ export const explosion = effect("explosion", "Explosion", [
   ),
 ]);
 
+// one sort group for every fire/smoke sprite: alpha smoke and additive fire interleave by depth
+// (smoke in front of fire dims it), across emitters and across effects, in a single draw call
+for (const fx of [campfire, explosion])
+  for (const e of fx.emitters)
+    for (const r of e.renderers)
+      if (r.type === "sprite" && ["smoke", "fire", "embers", "fireball", "puff", "flash"].includes(e.id)) r.sortGroup = "fx";
+
 // LOD: far explosions keep fireball + smoke; detail emitters drop out; hero particles are never thinned
 explosion.scalability = { lodDistance: 30, cullDistance: 150, farSpawnScale: 0.3, maxInstances: 800, overflow: "killOldest" };
 for (const e of explosion.emitters) {

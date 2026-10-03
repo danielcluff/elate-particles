@@ -140,6 +140,15 @@ export interface SpriteRendererDoc extends RendererBase {
   cameraFade?: number;
   /** Scale applied to the sprite (shape falloff, glow strength). */
   softness?: number;
+  /**
+   * Draw together with every other sprite renderer that has the same group
+   * name, in any emitter of any effect: one draw call, sorted back to front
+   * across all of them. Alpha and additive members interleave correctly
+   * (premultiplied blending), e.g. smoke in front of fire dims it. Textured
+   * members of a group must share one texture (an atlas); `blend: "opaque"`
+   * can't be grouped. The group always sorts by distance, ignoring `sort`.
+   */
+  sortGroup?: string;
 }
 
 /** Built-in mesh primitives; any other name refers to a geometry registered on the ParticleWorld. */

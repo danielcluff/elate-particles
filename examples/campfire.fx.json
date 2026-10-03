@@ -196,7 +196,8 @@
           "sort": "distance",
           "depthFade": 0.6,
           "cameraFade": 1,
-          "id": "smoke.r0"
+          "id": "smoke.r0",
+          "sortGroup": "fx"
         }
       ]
     },
@@ -378,7 +379,8 @@
           "shape": "softCircle",
           "facing": "camera",
           "depthFade": 0.3,
-          "id": "fire.r0"
+          "id": "fire.r0",
+          "sortGroup": "fx"
         }
       ]
     },
@@ -523,7 +525,8 @@
           "shape": "spark",
           "facing": "velocity",
           "stretch": 0.08,
-          "id": "embers.r0"
+          "id": "embers.r0",
+          "sortGroup": "fx"
         }
       ]
     }

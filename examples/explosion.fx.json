@@ -200,7 +200,8 @@
           "sort": "distance",
           "depthFade": 0.6,
           "cameraFade": 1,
-          "id": "smoke.r0"
+          "id": "smoke.r0",
+          "sortGroup": "fx"
         }
       ]
     },
@@ -386,7 +387,8 @@
           "shape": "softCircle",
           "facing": "camera",
           "softness": 0.8,
-          "id": "fireball.r0"
+          "id": "fireball.r0",
+          "sortGroup": "fx"
         }
       ]
     },
@@ -907,7 +909,8 @@
           "blend": "additive",
           "shape": "glow",
           "facing": "camera",
-          "id": "flash.r0"
+          "id": "flash.r0",
+          "sortGroup": "fx"
         }
       ],
       "lod": {
@@ -1195,7 +1198,8 @@
           "facing": "camera",
           "sortOrder": -1,
           "sort": "distance",
-          "id": "puff.r0"
+          "id": "puff.r0",
+          "sortGroup": "fx"
         }
       ],
       "eventDriven": true,
