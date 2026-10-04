@@ -1,7 +1,6 @@
 {
   "format": "elate-particles",
   "version": 1,
-  "id": "firework",
   "name": "Firework",
   "emitters": [
     {
@@ -14,7 +13,7 @@
       "space": "world",
       "spawn": [
         {
-          "id": "shell.spawn.burst",
+          "id": "spawn-burst",
           "type": "spawn.burst",
           "params": {
             "time": 0,
@@ -27,7 +26,7 @@
       ],
       "init": [
         {
-          "id": "shell.init.lifetime",
+          "id": "init-lifetime",
           "type": "init.lifetime",
           "params": {
             "lifetime": {
@@ -38,7 +37,7 @@
           }
         },
         {
-          "id": "shell.init.shape",
+          "id": "init-shape",
           "type": "init.shape",
           "params": {
             "shape": "cone",
@@ -71,14 +70,14 @@
           }
         },
         {
-          "id": "shell.init.size",
+          "id": "init-size",
           "type": "init.size",
           "params": {
             "size": 0.12
           }
         },
         {
-          "id": "shell.init.color",
+          "id": "init-color",
           "type": "init.color",
           "params": {
             "color": {
@@ -91,7 +90,7 @@
       ],
       "update": [
         {
-          "id": "shell.update.gravity",
+          "id": "update-gravity",
           "type": "update.gravity",
           "params": {
             "gravity": [
@@ -119,7 +118,7 @@
           },
           "taper": 1,
           "fade": 1,
-          "id": "shell.r0"
+          "id": "ribbon"
         },
         {
           "type": "sprite",
@@ -127,7 +126,7 @@
           "shape": "glow",
           "facing": "camera",
           "sortOrder": 1,
-          "id": "shell.r1"
+          "id": "sprite"
         }
       ],
       "subEmitters": [
@@ -150,7 +149,7 @@
       "spawn": [],
       "init": [
         {
-          "id": "stars.init.lifetime",
+          "id": "init-lifetime",
           "type": "init.lifetime",
           "params": {
             "lifetime": {
@@ -161,7 +160,7 @@
           }
         },
         {
-          "id": "stars.init.shape",
+          "id": "init-shape",
           "type": "init.shape",
           "params": {
             "shape": "sphere",
@@ -194,7 +193,7 @@
           }
         },
         {
-          "id": "stars.init.size",
+          "id": "init-size",
           "type": "init.size",
           "params": {
             "size": {
@@ -205,7 +204,7 @@
           }
         },
         {
-          "id": "stars.init.color",
+          "id": "init-color",
           "type": "init.color",
           "params": {
             "color": {
@@ -243,7 +242,7 @@
       ],
       "update": [
         {
-          "id": "stars.update.gravity",
+          "id": "update-gravity",
           "type": "update.gravity",
           "params": {
             "gravity": [
@@ -255,7 +254,7 @@
           }
         },
         {
-          "id": "stars.update.drag",
+          "id": "update-drag",
           "type": "update.drag",
           "params": {
             "drag": 1.1
@@ -264,7 +263,7 @@
       ],
       "render": [
         {
-          "id": "stars.render.colorOverLife",
+          "id": "render-color-over-life",
           "type": "render.colorOverLife",
           "params": {
             "gradient": {
@@ -307,7 +306,7 @@
           },
           "taper": 1,
           "fade": 1,
-          "id": "stars.r0"
+          "id": "ribbon"
         },
         {
           "type": "sprite",
@@ -315,7 +314,7 @@
           "shape": "glow",
           "facing": "camera",
           "sortOrder": 1,
-          "id": "stars.r1"
+          "id": "sprite"
         }
       ],
       "eventDriven": true

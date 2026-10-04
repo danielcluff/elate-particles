@@ -43,7 +43,8 @@ import { normalizeEffect } from "elate-particles";
 
 const world = new ParticleWorld({ budget: { maxParticles: 50_000 }, quality: settings.effectsQuality });
 scene.add(world.object);
-world.register(normalizeEffect(await (await fetch("/effects/explosion.fx.json")).json()));
+// files don't store their slug: the file name is the slug spawn() takes
+world.register(normalizeEffect(await (await fetch("/effects/explosion.fx.json")).json(), { id: "explosion" }));
 
 // fire and forget (pooled, auto-released when finished)
 world.spawn("explosion", { position: hit.point, scale: 1.5 });

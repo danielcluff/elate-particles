@@ -1,7 +1,6 @@
 {
   "format": "elate-particles",
   "version": 1,
-  "id": "thruster",
   "name": "Ship Thruster",
   "emitters": [
     {
@@ -14,7 +13,7 @@
       "space": "world",
       "spawn": [
         {
-          "id": "exhaust.spawn.rate",
+          "id": "spawn-rate",
           "type": "spawn.rate",
           "params": {
             "rate": {
@@ -28,7 +27,7 @@
       ],
       "init": [
         {
-          "id": "exhaust.init.lifetime",
+          "id": "init-lifetime",
           "type": "init.lifetime",
           "params": {
             "lifetime": {
@@ -39,7 +38,7 @@
           }
         },
         {
-          "id": "exhaust.init.shape",
+          "id": "init-shape",
           "type": "init.shape",
           "params": {
             "shape": "cone",
@@ -73,7 +72,7 @@
           }
         },
         {
-          "id": "exhaust.init.size",
+          "id": "init-size",
           "type": "init.size",
           "params": {
             "size": {
@@ -84,7 +83,7 @@
           }
         },
         {
-          "id": "exhaust.init.color",
+          "id": "init-color",
           "type": "init.color",
           "params": {
             "color": {
@@ -95,7 +94,7 @@
           }
         },
         {
-          "id": "exhaust.init.inheritVelocity",
+          "id": "init-inherit-velocity",
           "type": "init.inheritVelocity",
           "params": {
             "factor": 0.4
@@ -104,7 +103,7 @@
       ],
       "update": [
         {
-          "id": "exhaust.update.drag",
+          "id": "update-drag",
           "type": "update.drag",
           "params": {
             "drag": 2
@@ -113,7 +112,7 @@
       ],
       "render": [
         {
-          "id": "exhaust.render.sizeOverLife",
+          "id": "render-size-over-life",
           "type": "render.sizeOverLife",
           "params": {
             "curve": {
@@ -132,7 +131,7 @@
           }
         },
         {
-          "id": "exhaust.render.colorOverLife",
+          "id": "render-color-over-life",
           "type": "render.colorOverLife",
           "params": {
             "gradient": {
@@ -170,7 +169,7 @@
           "blend": "additive",
           "shape": "glow",
           "facing": "camera",
-          "id": "exhaust.r0"
+          "id": "sprite"
         }
       ]
     },
@@ -184,7 +183,7 @@
       "space": "world",
       "spawn": [
         {
-          "id": "trail.spawn.distance",
+          "id": "spawn-distance",
           "type": "spawn.distance",
           "params": {
             "perUnit": 2
@@ -193,14 +192,14 @@
       ],
       "init": [
         {
-          "id": "trail.init.lifetime",
+          "id": "init-lifetime",
           "type": "init.lifetime",
           "params": {
             "lifetime": 1.6
           }
         },
         {
-          "id": "trail.init.shape",
+          "id": "init-shape",
           "type": "init.shape",
           "params": {
             "shape": "point",
@@ -229,14 +228,14 @@
           }
         },
         {
-          "id": "trail.init.size",
+          "id": "init-size",
           "type": "init.size",
           "params": {
             "size": 0.35
           }
         },
         {
-          "id": "trail.init.color",
+          "id": "init-color",
           "type": "init.color",
           "params": {
             "color": {
@@ -250,7 +249,7 @@
       "update": [],
       "render": [
         {
-          "id": "trail.render.sizeOverLife",
+          "id": "render-size-over-life",
           "type": "render.sizeOverLife",
           "params": {
             "curve": {
@@ -269,7 +268,7 @@
           }
         },
         {
-          "id": "trail.render.colorOverLife",
+          "id": "render-color-over-life",
           "type": "render.colorOverLife",
           "params": {
             "gradient": {
@@ -304,7 +303,7 @@
           "shape": "softCircle",
           "facing": "camera",
           "uvMode": "stretch",
-          "id": "trail.r0"
+          "id": "ribbon"
         }
       ]
     }

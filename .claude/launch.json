@@ -58,6 +58,16 @@
         "dev"
       ],
       "port": 5173
+    },
+    {
+      "name": "redshift-fx",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "/Users/daniel/dev/redshift-fx",
+        "dev"
+      ],
+      "port": 5170
     }
   ]
 }

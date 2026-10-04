@@ -1,7 +1,6 @@
 {
   "format": "elate-particles",
   "version": 1,
-  "id": "gpuSmoke",
   "name": "GPU Smoke",
   "emitters": [
     {
@@ -14,7 +13,7 @@
       "space": "world",
       "spawn": [
         {
-          "id": "smoke.spawn.rate",
+          "id": "spawn-rate",
           "type": "spawn.rate",
           "params": {
             "rate": 5000
@@ -23,7 +22,7 @@
       ],
       "init": [
         {
-          "id": "smoke.init.lifetime",
+          "id": "init-lifetime",
           "type": "init.lifetime",
           "params": {
             "lifetime": {
@@ -34,7 +33,7 @@
           }
         },
         {
-          "id": "smoke.init.shape",
+          "id": "init-shape",
           "type": "init.shape",
           "params": {
             "shape": "circle",
@@ -67,7 +66,7 @@
           }
         },
         {
-          "id": "smoke.init.velocity",
+          "id": "init-velocity",
           "type": "init.velocity",
           "params": {
             "velocity": [
@@ -83,7 +82,7 @@
           }
         },
         {
-          "id": "smoke.init.size",
+          "id": "init-size",
           "type": "init.size",
           "params": {
             "size": {
@@ -94,7 +93,7 @@
           }
         },
         {
-          "id": "smoke.init.rotation",
+          "id": "init-rotation",
           "type": "init.rotation",
           "params": {
             "angle": {
@@ -110,7 +109,7 @@
           }
         },
         {
-          "id": "smoke.init.color",
+          "id": "init-color",
           "type": "init.color",
           "params": {
             "color": {
@@ -143,7 +142,7 @@
       ],
       "update": [
         {
-          "id": "smoke.update.turbulence",
+          "id": "update-turbulence",
           "type": "update.turbulence",
           "params": {
             "strength": 1.2,
@@ -152,14 +151,14 @@
           }
         },
         {
-          "id": "smoke.update.drag",
+          "id": "update-drag",
           "type": "update.drag",
           "params": {
             "drag": 0.6
           }
         },
         {
-          "id": "smoke.update.force",
+          "id": "update-force",
           "type": "update.force",
           "params": {
             "force": [
@@ -193,7 +192,7 @@
       ],
       "render": [
         {
-          "id": "smoke.render.sizeOverLife",
+          "id": "render-size-over-life",
           "type": "render.sizeOverLife",
           "params": {
             "curve": {
@@ -212,7 +211,7 @@
           }
         },
         {
-          "id": "smoke.render.colorOverLife",
+          "id": "render-color-over-life",
           "type": "render.colorOverLife",
           "params": {
             "gradient": {
@@ -252,7 +251,7 @@
           "facing": "camera",
           "sort": "distance",
           "sortGroup": "fx",
-          "id": "smoke.r0"
+          "id": "sprite"
         }
       ],
       "sim": "gpu"

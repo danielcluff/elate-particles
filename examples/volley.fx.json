@@ -1,7 +1,6 @@
 {
   "format": "elate-particles",
   "version": 1,
-  "id": "volley",
   "name": "GPU Volley",
   "emitters": [
     {
@@ -14,7 +13,7 @@
       "space": "world",
       "spawn": [
         {
-          "id": "rockets.spawn.rate",
+          "id": "spawn-rate",
           "type": "spawn.rate",
           "params": {
             "rate": 14
@@ -23,7 +22,7 @@
       ],
       "init": [
         {
-          "id": "rockets.init.lifetime",
+          "id": "init-lifetime",
           "type": "init.lifetime",
           "params": {
             "lifetime": {
@@ -34,7 +33,7 @@
           }
         },
         {
-          "id": "rockets.init.shape",
+          "id": "init-shape",
           "type": "init.shape",
           "params": {
             "shape": "box",
@@ -63,7 +62,7 @@
           }
         },
         {
-          "id": "rockets.init.velocity",
+          "id": "init-velocity",
           "type": "init.velocity",
           "params": {
             "velocity": [
@@ -79,14 +78,14 @@
           }
         },
         {
-          "id": "rockets.init.size",
+          "id": "init-size",
           "type": "init.size",
           "params": {
             "size": 0.18
           }
         },
         {
-          "id": "rockets.init.color",
+          "id": "init-color",
           "type": "init.color",
           "params": {
             "color": {
@@ -99,7 +98,7 @@
       ],
       "update": [
         {
-          "id": "rockets.update.gravity",
+          "id": "update-gravity",
           "type": "update.gravity",
           "params": {
             "gravity": [
@@ -127,7 +126,7 @@
           },
           "taper": 1,
           "fade": 1,
-          "id": "rockets.r0"
+          "id": "ribbon"
         },
         {
           "type": "sprite",
@@ -135,7 +134,7 @@
           "shape": "glow",
           "facing": "camera",
           "sortOrder": 1,
-          "id": "rockets.r1"
+          "id": "sprite"
         }
       ],
       "sim": "gpu",
@@ -160,7 +159,7 @@
       "spawn": [],
       "init": [
         {
-          "id": "burst.init.lifetime",
+          "id": "init-lifetime",
           "type": "init.lifetime",
           "params": {
             "lifetime": {
@@ -171,7 +170,7 @@
           }
         },
         {
-          "id": "burst.init.shape",
+          "id": "init-shape",
           "type": "init.shape",
           "params": {
             "shape": "sphere",
@@ -204,7 +203,7 @@
           }
         },
         {
-          "id": "burst.init.size",
+          "id": "init-size",
           "type": "init.size",
           "params": {
             "size": {
@@ -215,7 +214,7 @@
           }
         },
         {
-          "id": "burst.init.color",
+          "id": "init-color",
           "type": "init.color",
           "params": {
             "color": {
@@ -253,7 +252,7 @@
       ],
       "update": [
         {
-          "id": "burst.update.gravity",
+          "id": "update-gravity",
           "type": "update.gravity",
           "params": {
             "gravity": [
@@ -265,7 +264,7 @@
           }
         },
         {
-          "id": "burst.update.drag",
+          "id": "update-drag",
           "type": "update.drag",
           "params": {
             "drag": {
@@ -293,7 +292,7 @@
       ],
       "render": [
         {
-          "id": "burst.render.colorOverLife",
+          "id": "render-color-over-life",
           "type": "render.colorOverLife",
           "params": {
             "gradient": {
@@ -327,7 +326,7 @@
           "blend": "additive",
           "shape": "glow",
           "facing": "camera",
-          "id": "burst.r0"
+          "id": "sprite"
         },
         {
           "type": "light",
@@ -337,7 +336,7 @@
           "range": 24,
           "useParticleColor": true,
           "alphaAffectsIntensity": true,
-          "id": "burst.light"
+          "id": "light"
         }
       ],
       "sim": "gpu",
@@ -363,7 +362,7 @@
       "spawn": [],
       "init": [
         {
-          "id": "embers.init.lifetime",
+          "id": "init-lifetime",
           "type": "init.lifetime",
           "params": {
             "lifetime": {
@@ -374,7 +373,7 @@
           }
         },
         {
-          "id": "embers.init.shape",
+          "id": "init-shape",
           "type": "init.shape",
           "params": {
             "shape": "point",
@@ -407,7 +406,7 @@
           }
         },
         {
-          "id": "embers.init.size",
+          "id": "init-size",
           "type": "init.size",
           "params": {
             "size": {
@@ -420,7 +419,7 @@
       ],
       "update": [
         {
-          "id": "embers.update.gravity",
+          "id": "update-gravity",
           "type": "update.gravity",
           "params": {
             "gravity": [
@@ -432,7 +431,7 @@
           }
         },
         {
-          "id": "embers.update.turbulence",
+          "id": "update-turbulence",
           "type": "update.turbulence",
           "params": {
             "strength": 1.5,
@@ -443,7 +442,7 @@
       ],
       "render": [
         {
-          "id": "embers.render.sizeOverLife",
+          "id": "render-size-over-life",
           "type": "render.sizeOverLife",
           "params": {
             "curve": {
@@ -468,7 +467,7 @@
           "blend": "additive",
           "shape": "glow",
           "facing": "camera",
-          "id": "embers.r0"
+          "id": "sprite"
         }
       ],
       "sim": "gpu",

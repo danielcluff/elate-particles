@@ -1,7 +1,6 @@
 {
   "format": "elate-particles",
   "version": 1,
-  "id": "explosion",
   "name": "Explosion",
   "emitters": [
     {
@@ -14,7 +13,7 @@
       "space": "world",
       "spawn": [
         {
-          "id": "smoke.spawn.burst",
+          "id": "spawn-burst",
           "type": "spawn.burst",
           "params": {
             "time": 0.05,
@@ -27,7 +26,7 @@
       ],
       "init": [
         {
-          "id": "smoke.init.lifetime",
+          "id": "init-lifetime",
           "type": "init.lifetime",
           "params": {
             "lifetime": {
@@ -38,7 +37,7 @@
           }
         },
         {
-          "id": "smoke.init.shape",
+          "id": "init-shape",
           "type": "init.shape",
           "params": {
             "shape": "sphere",
@@ -71,7 +70,7 @@
           }
         },
         {
-          "id": "smoke.init.size",
+          "id": "init-size",
           "type": "init.size",
           "params": {
             "size": {
@@ -82,7 +81,7 @@
           }
         },
         {
-          "id": "smoke.init.rotation",
+          "id": "init-rotation",
           "type": "init.rotation",
           "params": {
             "angle": {
@@ -98,7 +97,7 @@
           }
         },
         {
-          "id": "smoke.init.color",
+          "id": "init-color",
           "type": "init.color",
           "params": {
             "color": {
@@ -111,14 +110,14 @@
       ],
       "update": [
         {
-          "id": "smoke.update.drag",
+          "id": "update-drag",
           "type": "update.drag",
           "params": {
             "drag": 1
           }
         },
         {
-          "id": "smoke.update.force",
+          "id": "update-force",
           "type": "update.force",
           "params": {
             "force": [
@@ -131,7 +130,7 @@
           }
         },
         {
-          "id": "smoke.update.turbulence",
+          "id": "update-turbulence",
           "type": "update.turbulence",
           "params": {
             "strength": 0.5,
@@ -142,7 +141,7 @@
       ],
       "render": [
         {
-          "id": "smoke.render.sizeOverLife",
+          "id": "render-size-over-life",
           "type": "render.sizeOverLife",
           "params": {
             "curve": {
@@ -161,7 +160,7 @@
           }
         },
         {
-          "id": "smoke.render.colorOverLife",
+          "id": "render-color-over-life",
           "type": "render.colorOverLife",
           "params": {
             "gradient": {
@@ -200,7 +199,7 @@
           "sort": "distance",
           "depthFade": 0.6,
           "cameraFade": 1,
-          "id": "smoke.r0",
+          "id": "sprite",
           "sortGroup": "fx"
         }
       ]
@@ -215,7 +214,7 @@
       "space": "world",
       "spawn": [
         {
-          "id": "fireball.spawn.burst",
+          "id": "spawn-burst",
           "type": "spawn.burst",
           "params": {
             "time": 0,
@@ -228,7 +227,7 @@
       ],
       "init": [
         {
-          "id": "fireball.init.lifetime",
+          "id": "init-lifetime",
           "type": "init.lifetime",
           "params": {
             "lifetime": {
@@ -239,7 +238,7 @@
           }
         },
         {
-          "id": "fireball.init.shape",
+          "id": "init-shape",
           "type": "init.shape",
           "params": {
             "shape": "sphere",
@@ -272,7 +271,7 @@
           }
         },
         {
-          "id": "fireball.init.size",
+          "id": "init-size",
           "type": "init.size",
           "params": {
             "size": {
@@ -283,7 +282,7 @@
           }
         },
         {
-          "id": "fireball.init.rotation",
+          "id": "init-rotation",
           "type": "init.rotation",
           "params": {
             "angle": {
@@ -299,7 +298,7 @@
           }
         },
         {
-          "id": "fireball.init.color",
+          "id": "init-color",
           "type": "init.color",
           "params": {
             "color": {
@@ -312,7 +311,7 @@
       ],
       "update": [
         {
-          "id": "fireball.update.drag",
+          "id": "update-drag",
           "type": "update.drag",
           "params": {
             "drag": 3
@@ -321,7 +320,7 @@
       ],
       "render": [
         {
-          "id": "fireball.render.sizeOverLife",
+          "id": "render-size-over-life",
           "type": "render.sizeOverLife",
           "params": {
             "curve": {
@@ -344,7 +343,7 @@
           }
         },
         {
-          "id": "fireball.render.colorOverLife",
+          "id": "render-color-over-life",
           "type": "render.colorOverLife",
           "params": {
             "gradient": {
@@ -387,7 +386,7 @@
           "shape": "softCircle",
           "facing": "camera",
           "softness": 0.8,
-          "id": "fireball.r0",
+          "id": "sprite",
           "sortGroup": "fx"
         },
         {
@@ -398,7 +397,7 @@
           "range": 16,
           "useParticleColor": true,
           "alphaAffectsIntensity": true,
-          "id": "fireball.light"
+          "id": "light"
         }
       ]
     },
@@ -412,7 +411,7 @@
       "space": "world",
       "spawn": [
         {
-          "id": "sparks.spawn.burst",
+          "id": "spawn-burst",
           "type": "spawn.burst",
           "params": {
             "time": 0,
@@ -425,7 +424,7 @@
       ],
       "init": [
         {
-          "id": "sparks.init.lifetime",
+          "id": "init-lifetime",
           "type": "init.lifetime",
           "params": {
             "lifetime": {
@@ -436,7 +435,7 @@
           }
         },
         {
-          "id": "sparks.init.shape",
+          "id": "init-shape",
           "type": "init.shape",
           "params": {
             "shape": "sphere",
@@ -469,7 +468,7 @@
           }
         },
         {
-          "id": "sparks.init.size",
+          "id": "init-size",
           "type": "init.size",
           "params": {
             "size": {
@@ -480,7 +479,7 @@
           }
         },
         {
-          "id": "sparks.init.color",
+          "id": "init-color",
           "type": "init.color",
           "params": {
             "color": {
@@ -494,14 +493,14 @@
       ],
       "update": [
         {
-          "id": "sparks.update.drag",
+          "id": "update-drag",
           "type": "update.drag",
           "params": {
             "drag": 1.8
           }
         },
         {
-          "id": "sparks.update.gravity",
+          "id": "update-gravity",
           "type": "update.gravity",
           "params": {
             "gravity": [
@@ -513,7 +512,7 @@
           }
         },
         {
-          "id": "sparks.update.collisionPlane",
+          "id": "update-collision-plane",
           "type": "update.collisionPlane",
           "params": {
             "point": [
@@ -535,7 +534,7 @@
       ],
       "render": [
         {
-          "id": "sparks.render.colorOverLife",
+          "id": "render-color-over-life",
           "type": "render.colorOverLife",
           "params": {
             "gradient": {
@@ -570,7 +569,7 @@
           "shape": "spark",
           "facing": "velocity",
           "stretch": 0.05,
-          "id": "sparks.r0"
+          "id": "sprite"
         },
         {
           "type": "ribbon",
@@ -586,7 +585,7 @@
           },
           "taper": 1,
           "fade": 1,
-          "id": "sparks.r1"
+          "id": "ribbon"
         }
       ],
       "subEmitters": [
@@ -613,7 +612,7 @@
       "space": "world",
       "spawn": [
         {
-          "id": "debris.spawn.burst",
+          "id": "spawn-burst",
           "type": "spawn.burst",
           "params": {
             "time": 0,
@@ -626,7 +625,7 @@
       ],
       "init": [
         {
-          "id": "debris.init.lifetime",
+          "id": "init-lifetime",
           "type": "init.lifetime",
           "params": {
             "lifetime": {
@@ -637,7 +636,7 @@
           }
         },
         {
-          "id": "debris.init.shape",
+          "id": "init-shape",
           "type": "init.shape",
           "params": {
             "shape": "hemisphere",
@@ -670,7 +669,7 @@
           }
         },
         {
-          "id": "debris.init.size",
+          "id": "init-size",
           "type": "init.size",
           "params": {
             "size": {
@@ -681,7 +680,7 @@
           }
         },
         {
-          "id": "debris.init.rotation",
+          "id": "init-rotation",
           "type": "init.rotation",
           "params": {
             "angle": {
@@ -697,7 +696,7 @@
           }
         },
         {
-          "id": "debris.init.color",
+          "id": "init-color",
           "type": "init.color",
           "params": {
             "color": {
@@ -710,7 +709,7 @@
       ],
       "update": [
         {
-          "id": "debris.update.gravity",
+          "id": "update-gravity",
           "type": "update.gravity",
           "params": {
             "gravity": [
@@ -722,14 +721,14 @@
           }
         },
         {
-          "id": "debris.update.drag",
+          "id": "update-drag",
           "type": "update.drag",
           "params": {
             "drag": 0.3
           }
         },
         {
-          "id": "debris.update.collisionPlane",
+          "id": "update-collision-plane",
           "type": "update.collisionPlane",
           "params": {
             "point": [
@@ -751,7 +750,7 @@
       ],
       "render": [
         {
-          "id": "debris.render.sizeOverLife",
+          "id": "render-size-over-life",
           "type": "render.sizeOverLife",
           "params": {
             "curve": {
@@ -782,7 +781,7 @@
           "orientation": "random",
           "lit": true,
           "roughness": 0.8,
-          "id": "debris.r0"
+          "id": "mesh"
         }
       ],
       "lod": {
@@ -800,7 +799,7 @@
       "space": "world",
       "spawn": [
         {
-          "id": "flash.spawn.burst",
+          "id": "spawn-burst",
           "type": "spawn.burst",
           "params": {
             "time": 0,
@@ -813,14 +812,14 @@
       ],
       "init": [
         {
-          "id": "flash.init.lifetime",
+          "id": "init-lifetime",
           "type": "init.lifetime",
           "params": {
             "lifetime": 0.18
           }
         },
         {
-          "id": "flash.init.shape",
+          "id": "init-shape",
           "type": "init.shape",
           "params": {
             "shape": "point",
@@ -849,14 +848,14 @@
           }
         },
         {
-          "id": "flash.init.size",
+          "id": "init-size",
           "type": "init.size",
           "params": {
             "size": 7
           }
         },
         {
-          "id": "flash.init.color",
+          "id": "init-color",
           "type": "init.color",
           "params": {
             "color": {
@@ -870,7 +869,7 @@
       "update": [],
       "render": [
         {
-          "id": "flash.render.sizeOverLife",
+          "id": "render-size-over-life",
           "type": "render.sizeOverLife",
           "params": {
             "curve": {
@@ -889,7 +888,7 @@
           }
         },
         {
-          "id": "flash.render.colorOverLife",
+          "id": "render-color-over-life",
           "type": "render.colorOverLife",
           "params": {
             "gradient": {
@@ -919,7 +918,7 @@
           "blend": "additive",
           "shape": "glow",
           "facing": "camera",
-          "id": "flash.r0",
+          "id": "sprite",
           "sortGroup": "fx"
         }
       ],
@@ -937,7 +936,7 @@
       "space": "world",
       "spawn": [
         {
-          "id": "shockwave.spawn.burst",
+          "id": "spawn-burst",
           "type": "spawn.burst",
           "params": {
             "time": 0,
@@ -950,14 +949,14 @@
       ],
       "init": [
         {
-          "id": "shockwave.init.lifetime",
+          "id": "init-lifetime",
           "type": "init.lifetime",
           "params": {
             "lifetime": 0.55
           }
         },
         {
-          "id": "shockwave.init.shape",
+          "id": "init-shape",
           "type": "init.shape",
           "params": {
             "shape": "point",
@@ -986,14 +985,14 @@
           }
         },
         {
-          "id": "shockwave.init.size",
+          "id": "init-size",
           "type": "init.size",
           "params": {
             "size": 1
           }
         },
         {
-          "id": "shockwave.init.rotation",
+          "id": "init-rotation",
           "type": "init.rotation",
           "params": {
             "angle": 0,
@@ -1001,7 +1000,7 @@
           }
         },
         {
-          "id": "shockwave.init.color",
+          "id": "init-color",
           "type": "init.color",
           "params": {
             "color": {
@@ -1015,7 +1014,7 @@
       "update": [],
       "render": [
         {
-          "id": "shockwave.render.sizeOverLife",
+          "id": "render-size-over-life",
           "type": "render.sizeOverLife",
           "params": {
             "curve": {
@@ -1034,7 +1033,7 @@
           }
         },
         {
-          "id": "shockwave.render.colorOverLife",
+          "id": "render-color-over-life",
           "type": "render.colorOverLife",
           "params": {
             "gradient": {
@@ -1064,7 +1063,7 @@
           "blend": "additive",
           "shape": "ring",
           "facing": "horizontal",
-          "id": "shockwave.r0"
+          "id": "sprite"
         }
       ],
       "lod": {
@@ -1082,7 +1081,7 @@
       "spawn": [],
       "init": [
         {
-          "id": "puff.init.lifetime",
+          "id": "init-lifetime",
           "type": "init.lifetime",
           "params": {
             "lifetime": {
@@ -1093,7 +1092,7 @@
           }
         },
         {
-          "id": "puff.init.shape",
+          "id": "init-shape",
           "type": "init.shape",
           "params": {
             "shape": "point",
@@ -1122,7 +1121,7 @@
           }
         },
         {
-          "id": "puff.init.size",
+          "id": "init-size",
           "type": "init.size",
           "params": {
             "size": {
@@ -1133,7 +1132,7 @@
           }
         },
         {
-          "id": "puff.init.color",
+          "id": "init-color",
           "type": "init.color",
           "params": {
             "color": "#5a5a5a"
@@ -1142,7 +1141,7 @@
       ],
       "update": [
         {
-          "id": "puff.update.force",
+          "id": "update-force",
           "type": "update.force",
           "params": {
             "force": [
@@ -1157,7 +1156,7 @@
       ],
       "render": [
         {
-          "id": "puff.render.sizeOverLife",
+          "id": "render-size-over-life",
           "type": "render.sizeOverLife",
           "params": {
             "curve": {
@@ -1176,7 +1175,7 @@
           }
         },
         {
-          "id": "puff.render.colorOverLife",
+          "id": "render-color-over-life",
           "type": "render.colorOverLife",
           "params": {
             "gradient": {
@@ -1208,7 +1207,7 @@
           "facing": "camera",
           "sortOrder": -1,
           "sort": "distance",
-          "id": "puff.r0",
+          "id": "sprite",
           "sortGroup": "fx"
         }
       ],

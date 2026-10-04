@@ -1,7 +1,6 @@
 {
   "format": "elate-particles",
   "version": 1,
-  "id": "comet",
   "name": "GPU Comet",
   "emitters": [
     {
@@ -14,7 +13,7 @@
       "space": "world",
       "spawn": [
         {
-          "id": "tail.spawn.rate",
+          "id": "spawn-rate",
           "type": "spawn.rate",
           "params": {
             "rate": 90
@@ -23,21 +22,21 @@
       ],
       "init": [
         {
-          "id": "tail.init.lifetime",
+          "id": "init-lifetime",
           "type": "init.lifetime",
           "params": {
             "lifetime": 1.6
           }
         },
         {
-          "id": "tail.init.size",
+          "id": "init-size",
           "type": "init.size",
           "params": {
             "size": 0.5
           }
         },
         {
-          "id": "tail.init.color",
+          "id": "init-color",
           "type": "init.color",
           "params": {
             "color": {
@@ -50,7 +49,7 @@
       ],
       "update": [
         {
-          "id": "tail.update.turbulence",
+          "id": "update-turbulence",
           "type": "update.turbulence",
           "params": {
             "strength": 1.5,
@@ -61,7 +60,7 @@
       ],
       "render": [
         {
-          "id": "tail.render.colorOverLife",
+          "id": "render-color-over-life",
           "type": "render.colorOverLife",
           "params": {
             "gradient": {
@@ -99,7 +98,7 @@
           "mode": "emitter",
           "taper": 1,
           "fade": 0.5,
-          "id": "tail.r0"
+          "id": "ribbon"
         },
         {
           "type": "sprite",
@@ -107,7 +106,7 @@
           "shape": "glow",
           "facing": "camera",
           "sortOrder": 1,
-          "id": "tail.r1"
+          "id": "sprite"
         }
       ],
       "sim": "gpu"

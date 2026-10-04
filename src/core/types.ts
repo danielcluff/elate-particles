@@ -82,6 +82,7 @@ export type Stage = "spawn" | "init" | "update" | "render";
 export const STAGES: Stage[] = ["spawn", "init", "update", "render"];
 
 export interface ModuleInstance {
+  /** Slug, unique within the emitter (all stages); derived from the type when added, e.g. "init-shape". */
   id: string;
   /** Registry key, e.g. "init.shape". */
   type: string;
@@ -114,7 +115,7 @@ export interface Flipbook {
 
 /** Fields every renderer has. An emitter can have several renderers (e.g. a sprite head plus a trail). */
 export interface RendererBase {
-  /** Stable id within the emitter (addressed by commands, the editor and agents). */
+  /** Slug, unique within the emitter (addressed by commands, the editor and agents); derived from the type, e.g. "sprite". */
   id?: string;
   /** Defaults to true. */
   enabled?: boolean;
@@ -294,7 +295,9 @@ export interface EmitterLod {
 }
 
 export interface EmitterDoc {
+  /** Slug, unique within the effect; chosen when the emitter is created and never changed. */
   id: string;
+  /** Display name, free text. */
   name: string;
   enabled?: boolean;
   /** Seconds per cycle. */
@@ -373,7 +376,12 @@ export interface EffectScalability {
 export interface EffectDoc {
   format: typeof EFFECT_FORMAT;
   version: typeof EFFECT_VERSION;
+  /**
+   * The effect's slug (what `ParticleWorld.spawn` takes). Files don't store it:
+   * the file name is the slug (see normalizeEffect's `id` and serializeEffect).
+   */
   id: string;
+  /** Display name, free text. */
   name: string;
   emitters: EmitterDoc[];
   parameters: EffectParameter[];

@@ -28,7 +28,7 @@ work on it. The game client's Vitest config excludes `vendor/**`, since the pack
 ```ts
 const particles = new ParticleWorld({ renderer: this.Renderer, budget: { maxParticles: 40_000 }, lights: { max: 8 } });
 this.Scene.add(particles.object);
-for (const id of PARTICLE_EFFECTS) particles.register(normalizeEffect(await (await fetch(`/content/effects/${id}.fx.json`)).json()));
+for (const id of PARTICLE_EFFECTS) particles.register(normalizeEffect(await (await fetch(`/content/effects/${id}.fx.json`)).json(), { id }));
 ```
 
 It updates in `onStep` right after `entityManager.lateStep`, so effects see final entity transforms, and is disposed in

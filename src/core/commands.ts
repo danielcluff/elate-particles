@@ -5,7 +5,8 @@
 // the same batch (`ref`).
 
 import { compileEffect } from "../sim/compile";
-import { createEmitter, createModule, createRenderer, defaultRenderer, findEmitter, findModule, findRenderer, uid, validateStructure } from "./doc";
+import { createEmitter, createModule, createRenderer, defaultRenderer, findEmitter, findModule, findRenderer, moduleIds, validateStructure } from "./doc";
+import { slugify, uniqueSlug } from "./slug";
 import { checkParam } from "./params";
 import { allModuleDefs, getModuleDef } from "./registry";
 import type { EffectDoc, EffectParameter, EmitterDoc, Issue, RendererDoc, SubEmitterBinding } from "./types";
@@ -85,7 +86,7 @@ function apply(doc: EffectDoc, cmd: Command, refs: Refs): unknown {
       doc.name = cmd.name;
       return { name: doc.name };
     case "addEmitter": {
-      const e = createEmitter(cmd.name ?? `Emitter ${doc.emitters.length + 1}`, cmd.template ?? "default");
+      const e = createEmitter(cmd.name ?? `Emitter ${doc.emitters.length + 1}`, cmd.template ?? "default", doc.emitters.map((x) => x.id));
       if (cmd.props) Object.assign(e, cmd.props);
       doc.emitters.splice(clampIndex(cmd.index, doc.emitters.length), 0, e);
       if (cmd.ref) refs.set(cmd.ref, e.id);
@@ -107,10 +108,9 @@ function apply(doc: EffectDoc, cmd: Command, refs: Refs): unknown {
     case "duplicateEmitter": {
       const src = findEmitter(doc, ref(refs, cmd.emitterId));
       const copy: EmitterDoc = structuredClone(src);
-      copy.id = uid("e");
       copy.name = cmd.name ?? `${src.name} copy`;
-      for (const stage of ["spawn", "init", "update", "render"] as const) for (const m of copy[stage]) m.id = uid("m");
-      for (const r of copy.renderers) r.id = uid("r");
+      // modules and renderers are scoped to their emitter, so they keep their slugs
+      copy.id = uniqueSlug(cmd.name ? slugify(cmd.name, "emitter") : src.id, doc.emitters.map((x) => x.id));
       doc.emitters.splice(doc.emitters.indexOf(src) + 1, 0, copy);
       if (cmd.ref) refs.set(cmd.ref, copy.id);
       return { emitterId: copy.id };
@@ -128,7 +128,7 @@ function apply(doc: EffectDoc, cmd: Command, refs: Refs): unknown {
       if (cmd.params) checkModuleParams(cmd.type, cmd.params);
       if (def.multiple === false && e[def.stage].some((m) => m.type === cmd.type))
         throw new CommandError(`${def.label} is already in this emitter; update it instead`);
-      const m = createModule(cmd.type, cmd.params);
+      const m = createModule(cmd.type, cmd.params, moduleIds(e));
       if (cmd.label) m.label = cmd.label;
       const list = e[def.stage];
       list.splice(clampIndex(cmd.index, list.length), 0, m);
@@ -169,7 +169,7 @@ function apply(doc: EffectDoc, cmd: Command, refs: Refs): unknown {
     }
     case "addRenderer": {
       const e = findEmitter(doc, ref(refs, cmd.emitterId));
-      const r = createRenderer(cmd.renderer.type, { ...cmd.renderer, id: undefined });
+      const r = createRenderer(cmd.renderer.type, { ...cmd.renderer, id: undefined }, e.renderers.map((x) => x.id!));
       e.renderers.splice(clampIndex(cmd.index, e.renderers.length), 0, r);
       if (cmd.ref) refs.set(cmd.ref, r.id!);
       return { rendererId: r.id };

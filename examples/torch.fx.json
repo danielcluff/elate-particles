@@ -1,7 +1,6 @@
 {
   "format": "elate-particles",
   "version": 1,
-  "id": "torch",
   "name": "GPU Torch",
   "emitters": [
     {
@@ -14,7 +13,7 @@
       "space": "world",
       "spawn": [
         {
-          "id": "flame.spawn.rate",
+          "id": "spawn-rate",
           "type": "spawn.rate",
           "params": {
             "rate": 1200
@@ -23,7 +22,7 @@
       ],
       "init": [
         {
-          "id": "flame.init.lifetime",
+          "id": "init-lifetime",
           "type": "init.lifetime",
           "params": {
             "lifetime": {
@@ -34,7 +33,7 @@
           }
         },
         {
-          "id": "flame.init.shape",
+          "id": "init-shape",
           "type": "init.shape",
           "params": {
             "shape": "cone",
@@ -67,7 +66,7 @@
           }
         },
         {
-          "id": "flame.init.size",
+          "id": "init-size",
           "type": "init.size",
           "params": {
             "size": {
@@ -78,7 +77,7 @@
           }
         },
         {
-          "id": "flame.init.color",
+          "id": "init-color",
           "type": "init.color",
           "params": {
             "color": {
@@ -108,7 +107,7 @@
       ],
       "update": [
         {
-          "id": "flame.update.turbulence",
+          "id": "update-turbulence",
           "type": "update.turbulence",
           "params": {
             "strength": 2,
@@ -117,7 +116,7 @@
           }
         },
         {
-          "id": "flame.update.drag",
+          "id": "update-drag",
           "type": "update.drag",
           "params": {
             "drag": 0.8
@@ -126,7 +125,7 @@
       ],
       "render": [
         {
-          "id": "flame.render.sizeOverLife",
+          "id": "render-size-over-life",
           "type": "render.sizeOverLife",
           "params": {
             "curve": {
@@ -145,7 +144,7 @@
           }
         },
         {
-          "id": "flame.render.colorOverLife",
+          "id": "render-color-over-life",
           "type": "render.colorOverLife",
           "params": {
             "gradient": {
@@ -183,7 +182,7 @@
           "blend": "additive",
           "shape": "glow",
           "facing": "camera",
-          "id": "flame.r0"
+          "id": "sprite"
         }
       ],
       "sim": "gpu"

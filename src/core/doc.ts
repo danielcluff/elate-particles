@@ -2,6 +2,7 @@
 
 import { resolveParams } from "./params";
 import { getModuleDef } from "./registry";
+import { isSlug, moduleSlug, slugify, uniqueSlug } from "./slug";
 import {
   EFFECT_FORMAT,
   EFFECT_VERSION,
@@ -36,21 +37,27 @@ export function defaultRenderer(type: RendererType = "sprite"): RendererDoc {
   }
 }
 
-/** A renderer of `type` with defaults, overrides and a fresh id. */
-export function createRenderer(type: RendererType = "sprite", overrides: Partial<RendererDoc> = {}): RendererDoc {
-  return { ...defaultRenderer(type), ...overrides, type, id: overrides.id ?? uid("r") } as RendererDoc;
+/** Slugs already used by an emitter's modules (all stages share one namespace). */
+export function moduleIds(e: EmitterDoc): string[] {
+  return STAGES.flatMap((stage) => e[stage].map((m) => m.id));
 }
 
-/** A module instance with every param at its default (plus overrides). */
-export function createModule(type: string, params: Record<string, unknown> = {}): ModuleInstance {
+/** A renderer of `type` with defaults and overrides; its slug comes from its type, unique among `taken`. */
+export function createRenderer(type: RendererType = "sprite", overrides: Partial<RendererDoc> = {}, taken: Iterable<string> = []): RendererDoc {
+  return { ...defaultRenderer(type), ...overrides, type, id: overrides.id ?? uniqueSlug(type, taken) } as RendererDoc;
+}
+
+/** A module instance with every param at its default (plus overrides); its slug comes from its type, unique among `taken`. */
+export function createModule(type: string, params: Record<string, unknown> = {}, taken: Iterable<string> = []): ModuleInstance {
   const def = getModuleDef(type);
   if (!def) throw new Error(`Unknown module type "${type}"`);
-  return { id: uid("m"), type, params: resolveParams(def.params, params) };
+  return { id: uniqueSlug(moduleSlug(type), taken), type, params: resolveParams(def.params, params) };
 }
 
-export function createEmitter(name = "Emitter", template: "default" | "empty" = "default"): EmitterDoc {
+/** An emitter whose slug comes from `name`, unique among `taken` (the effect's other emitters). */
+export function createEmitter(name = "Emitter", template: "default" | "empty" = "default", taken: Iterable<string> = []): EmitterDoc {
   const base: EmitterDoc = {
-    id: uid("e"),
+    id: uniqueSlug(slugify(name, "emitter"), taken),
     name,
     duration: 2,
     looping: true,
@@ -71,12 +78,13 @@ export function createEmitter(name = "Emitter", template: "default" | "empty" = 
   return base;
 }
 
-export function createEffect(name = "New Effect", opts: { emitter?: boolean } = {}): EffectDoc {
+/** A new effect. Its slug comes from `name` unless given (hosts usually use the file name). */
+export function createEffect(name = "New Effect", opts: { emitter?: boolean; id?: string } = {}): EffectDoc {
   const now = Date.now();
   return {
     format: EFFECT_FORMAT,
     version: EFFECT_VERSION,
-    id: uid("fx"),
+    id: opts.id ?? slugify(name, "effect"),
     name,
     emitters: opts.emitter === false ? [] : [createEmitter("Emitter")],
     parameters: [],
@@ -87,24 +95,34 @@ export function createEffect(name = "New Effect", opts: { emitter?: boolean } = 
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-function normalizeModules(list: unknown): ModuleInstance[] {
-  if (!Array.isArray(list)) return [];
-  return list.filter(isObj).map((m) => ({
-    ...(m as unknown as ModuleInstance),
-    id: typeof m.id === "string" && m.id ? m.id : uid("m"),
-    type: String(m.type ?? ""),
-    params: isObj(m.params) ? (m.params as Record<string, unknown>) : {},
-  }));
+/** Keeps an id that is a free slug; otherwise derives one (older files used generated ids). */
+function claim(id: unknown, derive: () => string, taken: Set<string>): string {
+  const slug = isSlug(id) && !taken.has(id) ? id : uniqueSlug(derive(), taken);
+  taken.add(slug);
+  return slug;
 }
 
-/** `renderers` (or a legacy single `renderer`), each filled with its type's defaults and given an id. */
+/** Modules of one stage; `taken` is shared by every stage of the emitter. */
+function normalizeModules(list: unknown, taken: Set<string>): ModuleInstance[] {
+  if (!Array.isArray(list)) return [];
+  return list.filter(isObj).map((m) => {
+    const type = String(m.type ?? "");
+    return {
+      ...(m as unknown as ModuleInstance),
+      id: claim(m.id, () => moduleSlug(type), taken),
+      type,
+      params: isObj(m.params) ? (m.params as Record<string, unknown>) : {},
+    };
+  });
+}
+
+/** `renderers` (or a legacy single `renderer`), each filled with its type's defaults and given a slug. */
 function normalizeRenderers(raw: Record<string, unknown>): RendererDoc[] {
   const list: unknown[] = Array.isArray(raw.renderers) ? raw.renderers : isObj(raw.renderer) ? [raw.renderer] : [defaultRenderer()];
-  const seen = new Set<string>();
+  const taken = new Set<string>();
   return list.filter(isObj).map((r) => {
-    let id = typeof r.id === "string" && r.id && !seen.has(r.id) ? r.id : uid("r");
-    seen.add(id);
-    return { ...defaultRenderer(r.type as RendererType), ...r, id } as RendererDoc;
+    const type = (RENDERER_TYPES.includes(r.type as RendererType) ? r.type : "sprite") as RendererType;
+    return { ...defaultRenderer(r.type as RendererType), ...r, id: claim(r.id, () => type, taken) } as RendererDoc;
   });
 }
 
@@ -112,30 +130,44 @@ function normalizeRenderers(raw: Record<string, unknown>): RendererDoc[] {
  * Parses untrusted JSON into an EffectDoc, filling structural defaults.
  * Throws when the input is not an effect at all; content problems are left
  * for validateEffect so nothing the user made is silently dropped.
+ *
+ * Effect files don't store their own slug (the file name is the slug): pass it
+ * as `opts.id`. Ids that aren't slugs (older files) are replaced by slugs, and
+ * sub-emitter bindings follow renamed emitters.
  */
-export function normalizeEffect(json: unknown): EffectDoc {
+export function normalizeEffect(json: unknown, opts: { id?: string } = {}): EffectDoc {
   if (!isObj(json)) throw new Error("Effect must be a JSON object");
   if (json.format !== undefined && json.format !== EFFECT_FORMAT) throw new Error(`Not a ${EFFECT_FORMAT} document (format "${String(json.format)}")`);
   if (!Array.isArray(json.emitters)) throw new Error("Effect has no emitters array");
+  const emitterIds = new Set<string>();
+  const renamed = new Map<string, string>();
   const emitters = json.emitters.filter(isObj).map((raw): EmitterDoc => {
-    const def = createEmitter(String(raw.name ?? "Emitter"), "empty");
+    const name = String(raw.name ?? "Emitter");
+    const def = createEmitter(name, "empty");
     const { renderer: _legacy, ...fields } = raw;
+    const id = claim(raw.id, () => slugify(name, "emitter"), emitterIds);
+    if (typeof raw.id === "string" && raw.id !== id) renamed.set(raw.id, id);
+    const modules = new Set<string>();
     return {
       ...def,
       ...(fields as Partial<EmitterDoc>),
-      id: typeof raw.id === "string" && raw.id ? raw.id : def.id,
-      spawn: normalizeModules(raw.spawn),
-      init: normalizeModules(raw.init),
-      update: normalizeModules(raw.update),
-      render: normalizeModules(raw.render),
+      id,
+      spawn: normalizeModules(raw.spawn, modules),
+      init: normalizeModules(raw.init, modules),
+      update: normalizeModules(raw.update, modules),
+      render: normalizeModules(raw.render, modules),
       renderers: normalizeRenderers(raw),
     };
   });
+  if (renamed.size)
+    for (const e of emitters)
+      if (Array.isArray(e.subEmitters)) e.subEmitters = e.subEmitters.map((s) => (renamed.has(s.emitter) ? { ...s, emitter: renamed.get(s.emitter)! } : s));
+  const name = typeof json.name === "string" ? json.name : "Effect";
   return {
     format: EFFECT_FORMAT,
     version: EFFECT_VERSION,
-    id: typeof json.id === "string" && json.id ? json.id : uid("fx"),
-    name: typeof json.name === "string" ? json.name : "Effect",
+    id: opts.id ?? (isSlug(json.id) ? json.id : slugify(name, "effect")),
+    name,
     emitters,
     parameters: Array.isArray(json.parameters) ? (json.parameters as EffectDoc["parameters"]) : [],
     ...(typeof json.createdAt === "number" ? { createdAt: json.createdAt } : {}),
@@ -146,13 +178,31 @@ export function normalizeEffect(json: unknown): EffectDoc {
   };
 }
 
+/**
+ * The effect as it is written to a file: without its own slug (the file name
+ * is the slug) or editor metadata (timestamps, thumbnail).
+ */
+export function serializeEffect(doc: EffectDoc): Omit<EffectDoc, "id" | "createdAt" | "updatedAt" | "thumbnail"> {
+  const { id: _id, createdAt: _c, updatedAt: _u, thumbnail: _t, ...file } = doc;
+  return file;
+}
+
 /** Structural checks that do not need the simulator (module params are checked by compileEffect). */
 export function validateStructure(doc: EffectDoc): Issue[] {
   const issues: Issue[] = [];
   const ids = new Set<string>();
   for (const e of doc.emitters) {
+    if (!isSlug(e.id)) issues.push({ level: "error", message: `Emitter id "${e.id}" is not a slug (lowercase-kebab-case)`, emitterId: e.id });
     if (ids.has(e.id)) issues.push({ level: "error", message: `Duplicate emitter id "${e.id}"`, emitterId: e.id });
     ids.add(e.id);
+    const mids = new Set<string>();
+    for (const stage of STAGES)
+      for (const m of e[stage] ?? []) {
+        const where = { emitterId: e.id, moduleId: m.id };
+        if (!isSlug(m.id)) issues.push({ level: "error", message: `Module id "${m.id}" is not a slug (lowercase-kebab-case)`, ...where });
+        else if (mids.has(m.id)) issues.push({ level: "error", message: `Duplicate module id "${m.id}"`, ...where });
+        mids.add(m.id);
+      }
     if (!(e.duration > 0)) issues.push({ level: "error", message: "duration must be > 0", emitterId: e.id });
     if (!(e.maxParticles >= 1)) issues.push({ level: "error", message: "maxParticles must be ≥ 1", emitterId: e.id });
     if (e.maxParticles > 100_000 && e.sim !== "gpu")
@@ -163,7 +213,8 @@ export function validateStructure(doc: EffectDoc): Issue[] {
     for (const r of e.renderers ?? []) {
       const where = { emitterId: e.id, rendererId: r?.id };
       if (r?.id) {
-        if (rids.has(r.id)) issues.push({ level: "error", message: `Duplicate renderer id "${r.id}"`, ...where });
+        if (!isSlug(r.id)) issues.push({ level: "error", message: `Renderer id "${r.id}" is not a slug (lowercase-kebab-case)`, ...where });
+        else if (rids.has(r.id)) issues.push({ level: "error", message: `Duplicate renderer id "${r.id}"`, ...where });
         rids.add(r.id);
       }
       if (!RENDERER_TYPES.includes(r?.type)) {

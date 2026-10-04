@@ -1,7 +1,6 @@
 {
   "format": "elate-particles",
   "version": 1,
-  "id": "swarm",
   "name": "GPU Swarm",
   "emitters": [
     {
@@ -14,7 +13,7 @@
       "space": "world",
       "spawn": [
         {
-          "id": "swarm.spawn.rate",
+          "id": "spawn-rate",
           "type": "spawn.rate",
           "params": {
             "rate": 60000
@@ -23,7 +22,7 @@
       ],
       "init": [
         {
-          "id": "swarm.init.lifetime",
+          "id": "init-lifetime",
           "type": "init.lifetime",
           "params": {
             "lifetime": {
@@ -34,7 +33,7 @@
           }
         },
         {
-          "id": "swarm.init.shape",
+          "id": "init-shape",
           "type": "init.shape",
           "params": {
             "shape": "sphere",
@@ -67,7 +66,7 @@
           }
         },
         {
-          "id": "swarm.init.size",
+          "id": "init-size",
           "type": "init.size",
           "params": {
             "size": {
@@ -78,7 +77,7 @@
           }
         },
         {
-          "id": "swarm.init.color",
+          "id": "init-color",
           "type": "init.color",
           "params": {
             "color": {
@@ -112,7 +111,7 @@
       ],
       "update": [
         {
-          "id": "swarm.update.vortex",
+          "id": "update-vortex",
           "type": "update.vortex",
           "params": {
             "axis": [
@@ -130,7 +129,7 @@
           }
         },
         {
-          "id": "swarm.update.turbulence",
+          "id": "update-turbulence",
           "type": "update.turbulence",
           "params": {
             "strength": 4,
@@ -139,7 +138,7 @@
           }
         },
         {
-          "id": "swarm.update.drag",
+          "id": "update-drag",
           "type": "update.drag",
           "params": {
             "drag": 0.4
@@ -148,7 +147,7 @@
       ],
       "render": [
         {
-          "id": "swarm.render.colorOverLife",
+          "id": "render-color-over-life",
           "type": "render.colorOverLife",
           "params": {
             "gradient": {
@@ -186,7 +185,7 @@
           "blend": "additive",
           "shape": "glow",
           "facing": "camera",
-          "id": "swarm.r0"
+          "id": "sprite"
         }
       ],
       "sim": "gpu"

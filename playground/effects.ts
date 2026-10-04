@@ -2,6 +2,8 @@
 import {
   createModule,
   defaultRenderer,
+  moduleIds,
+  uniqueSlug,
   type EffectDoc,
   type EmitterDoc,
   type LightRendererDoc,
@@ -30,23 +32,14 @@ function emitter(
     init: [],
     update: [],
     render: [],
-    // stable ids keep exported .fx.json diffs readable
-    renderers: (Array.isArray(renderer) ? renderer : [renderer]).map(
-      (r, i) =>
-        ({
-          ...defaultRenderer(r.type),
-          ...r,
-          id: `${id}.r${i}`,
-        }) as RendererDoc,
-    ),
+    renderers: [],
     ...props,
   };
+  // slugs from the type, unique within the emitter ("sprite", "sprite-2")
+  for (const r of Array.isArray(renderer) ? renderer : [renderer])
+    e.renderers.push({ ...defaultRenderer(r.type), ...r, id: uniqueSlug(r.type ?? "sprite", e.renderers.map((x) => x.id!)) } as RendererDoc);
   for (const [type, params] of mods) {
-    // stable ids keep exported .fx.json diffs readable
-    const m: ModuleInstance = {
-      ...createModule(type, params),
-      id: `${id}.${type}`,
-    };
+    const m: ModuleInstance = createModule(type, params, moduleIds(e));
     e[type.split(".")[0] as "spawn"].push(m);
   }
   return e;
@@ -814,7 +807,7 @@ export const swarm = effect("swarm", "GPU Swarm", [
 ]);
 
 /** Alpha-blended smoke on the GPU, depth-sorted on the GPU (bitonic sort + gather). */
-export const gpuSmoke = effect("gpuSmoke", "GPU Smoke", [
+export const gpuSmoke = effect("gpu-smoke", "GPU Smoke", [
   emitter(
     "smoke",
     { maxParticles: 32_768, sim: "gpu" },
@@ -1064,8 +1057,10 @@ export const volley = effect("volley", "GPU Volley", [
 
 // per-particle lights (they need ParticleWorld({ lights: { max } })): the fire flickers on the ground, fireballs
 // flash, GPU firework bursts glow
-const addLight = (fx: EffectDoc, emitterId: string, l: Partial<LightRendererDoc>) =>
-  fx.emitters.find((e) => e.id === emitterId)!.renderers.push({ ...(defaultRenderer("light") as LightRendererDoc), ...l, id: `${emitterId}.light` });
+const addLight = (fx: EffectDoc, emitterId: string, l: Partial<LightRendererDoc>) => {
+  const e = fx.emitters.find((x) => x.id === emitterId)!;
+  e.renderers.push({ ...(defaultRenderer("light") as LightRendererDoc), ...l, id: uniqueSlug("light", e.renderers.map((r) => r.id!)) });
+};
 addLight(campfire, "fire", { ratio: 0.3, maxLights: 1, intensity: 30, range: 10 });
 addLight(explosion, "fireball", { ratio: 0.5, maxLights: 2, intensity: 60, range: 16 });
 addLight(volley, "burst", { ratio: 0.02, maxLights: 6, intensity: 120, range: 24 });

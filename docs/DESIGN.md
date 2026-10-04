@@ -9,7 +9,8 @@ A data-driven particle system for three.js (WebGPU/TSL). It has three consumers:
 
 Phase 1, the runtime library, is implemented in this repo. Phase 2 is implemented in
 [elate-particles-editor](https://github.com/danielcluff/elate-particles-editor) (editor, MCP server, AI chat), which
-uses this repo as a git submodule, and in tsl-graph (the `particle` graph kind). Phase 3 is designed below.
+uses this repo as a git submodule, and in tsl-graph (the `particle` graph kind). Phase 3 is under way in
+[redshift-fx](https://github.com/elate-me/redshift-fx) (section 5).
 
 ---
 
@@ -587,7 +588,15 @@ Per-particle trails (`mode: "particle"`, Unity's Trails module):
   (`scripts/bench-trails.ts`).
 
 Files are plain JSON (`*.fx.json`, see `examples/`). `normalizeEffect` parses untrusted input. `validateEffect`
-returns issues and never throws. The compiler skips invalid modules and reports them, so a half-edited effect still
+returns issues and never throws.
+
+**Slugs, not ids.** Everything is named by a slug (lowercase kebab-case) that is chosen at creation and never changes;
+display names are separate text. An effect's slug is its file name, so files don't store it: pass it to
+`normalizeEffect(json, { id })`, and write files with `serializeEffect(doc)` (no slug, no editor metadata). Emitter
+slugs are unique within the effect and come from the emitter's name; module and renderer slugs are unique within
+their emitter and come from their type (`spawn-rate`, `render-size-over-life`, `sprite`, `sprite-2`). Commands always
+address modules and renderers through their emitter. `normalizeEffect` replaces generated ids from older files with
+slugs and keeps sub-emitter bindings pointing at the renamed emitters. The compiler skips invalid modules and reports them, so a half-edited effect still
 plays in the editor.
 
 ### Modules: the extension point
@@ -793,34 +802,23 @@ time) to custom TSL. Phase 2 closes the loop with shader graphs (implemented):
 
 ---
 
-## 5. Phase 3: FX studio (new repo)
+## 5. Phase 3: FX studio (redshift-fx)
 
-A pnpm monorepo that turns the two tools into one small effects engine:
+Phase 3 is [redshift-fx](https://github.com/elate-me/redshift-fx), a studio specific to Redshift. It differs from the
+original monorepo sketch in a few ways:
 
-```
-fx-studio/
-├── packages/
-│   ├── studio-kit/      shared: UI kit + theme, AI chat (client + provider loop), bridge,
-│   │                    MCP plumbing, host contracts, asset store interface
-│   ├── tsl-graph/       shader editor (moved in; core/runtime/editor/server unchanged)
-│   └── elate-particles/   this repo
-└── apps/
-    └── studio/          the app: project browser, asset library, docked editors, scene preview
-```
+- **Submodules, not a monorepo.** This runtime, elate-particles-editor and tsl-graph are git submodules in one pnpm
+  workspace, and each stays usable on its own. Nothing moves, and there is no `studio-kit` extraction yet; the studio
+  shell uses the effect editor's UI kit.
+- **Redshift's content tree is the asset store.** The studio reads models from `content/` and writes only to
+  `content-src/`, each source file beside its production-ready runtime file (`effects/<id>.fx.json`;
+  `effects/shaders/<id>.graph.json` → generated `<id>.ts`). Redshift's build step moves runtime files into `content/`.
+- **One MCP endpoint** with `fx_*` and `shader_*` tools, through the editors' `mcp: "parent"` registration.
+- **Next:** ship and weapon FX setups (attachment points on the model, effects and lights bound to game values),
+  shader targets that match the game's material contracts (projectile, outfit, shield), shields that react where they
+  are hit, and event timelines played by a small player in this runtime.
 
-- **Assets, not projects.** A studio project holds typed assets: shaders (`ProjectDoc`), effects (`EffectDoc`),
-  textures and flipbooks, and **VFX prefabs** (an effect plus lights, camera shake, audio cues and a mesh, with a
-  shared timeline). Assets reference each other by id. A dependency index means editing a shader hot-reloads every
-  effect that uses it.
-- **One MCP server** registers `shader_*`, `fx_*`, `asset_*` tools. Both packages already support this through
-  `mcp: "parent"` and prefixed registration. One AI chat panel has all tools in scope.
-- **Unity/Unreal analogues:** content browser (assets), details panel (inspector), viewport, a lightweight sequencer
-  for prefabs, and play-in-scene with a test environment (ground, sky, motion paths, a sample Redshift ship).
-- **Export** produces a runtime bundle a game can load: `*.fx.json` plus generated TSL modules for graph materials (via
-  tsl-graph's codegen) and a texture atlas. Redshift loads that bundle through `ParticleWorld`.
-
-`studio-kit` is extracted from tsl-graph (AI provider adapters, chat loop, bridge, UI kit), and tsl-graph then depends
-on it. That's the only change Phase 3 asks of tsl-graph.
+See redshift-fx's `docs/DESIGN.md` for the plan.
 
 ---
 
@@ -833,7 +831,7 @@ on it. That's the only change Phase 3 asks of tsl-graph.
 | 1.2 ✅ | Runtime gaps | mesh + ribbon renderers, per-particle trails, multiple renderers per emitter, sorting + sort groups, soft particles + camera fade, budget/LOD/culling, worker simulation |
 | **2** ✅ | Effect editor | Stack UI, value widgets, timeline, viewport, store and undo, MCP + AI chat (elate-particles-editor); `particle` graph kind in tsl-graph and graph materials for sprites |
 | 2.1 ✅ | GPU backend | TSL compute implementations for built-in modules, `sim: "gpu"` per emitter, CPU fallback |
-| **3** | FX studio | Monorepo, `studio-kit` extraction, asset model, prefabs, unified MCP, export bundle |
+| **3** | FX studio | redshift-fx: studio shell over Redshift content ✅; ship/weapon FX setups, shader targets, reactive shields, event timelines |
 
 ### Decisions to confirm
 

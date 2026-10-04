@@ -11,6 +11,7 @@ export * from "./core/values";
 export * from "./core/params";
 export * from "./core/registry";
 export * from "./core/doc";
+export * from "./core/slug";
 export * from "./core/commands";
 export { BUILTIN_MODULES, registerBuiltinModules } from "./modules";
 export * from "./sim";

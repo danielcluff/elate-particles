@@ -53,11 +53,12 @@ describe("renderer lists in documents", () => {
     expect(e.renderers[0]).toEqual({ id, type: "mesh", blend: "opaque", mesh: "icosahedron", orientation: "random" });
   });
 
-  it("duplicating an emitter gives its renderers new ids", () => {
+  it("duplicating an emitter keeps its renderer slugs (they are scoped to the emitter)", () => {
     const doc = createEffect("fx");
     const { emitterId } = executeCommand(doc, { op: "duplicateEmitter", emitterId: doc.emitters[0].id }) as { emitterId: string };
     const copy = doc.emitters.find((e) => e.id === emitterId)!;
-    expect(copy.renderers[0].id).not.toBe(doc.emitters[0].renderers[0].id);
+    expect(emitterId).toBe("emitter-2");
+    expect(copy.renderers[0].id).toBe(doc.emitters[0].renderers[0].id);
   });
 });
 
