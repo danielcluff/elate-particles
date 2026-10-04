@@ -282,7 +282,7 @@ export class WorkerParticleWorld {
       const batches = this.#render._batchList();
       if (batches.length !== r.batches.length && !this.#mismatchWarned) {
         this.#mismatchWarned = true;
-        console.warn(`tsl-particles: worker batch list (${r.batches.length}) doesn't match the main thread's (${batches.length}); were the same effects registered in the same order?`);
+        console.warn(`elate-particles: worker batch list (${r.batches.length}) doesn't match the main thread's (${batches.length}); were the same effects registered in the same order?`);
       }
       const spares: (Float32Array | null)[] = [];
       for (let i = 0; i < batches.length; i++) {

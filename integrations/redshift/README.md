@@ -1,105 +1,81 @@
 # Redshift integration
 
-Wiring tsl-particles into `redshift/gameClient`. Nothing here has been applied to Redshift yet. Each step is small and
-reversible.
+How elate-particles is wired into `redshift/gameClient`. All of the steps below are applied in Redshift. Later
+sections cover features Redshift doesn't use yet.
 
-## 1. Depend on the package
+## 1. Dependency and build config
 
-`gameClient/package.json`:
+`gameClient/package.json` links this checkout (installed with pnpm, which owns `gameClient/node_modules`):
 
 ```json
-"dependencies": {
-    "tsl-particles": "link:../../particle-system"
-}
+"elate-particles": "link:../../particle-system"
 ```
 
-The package ships TypeScript source, which Vite compiles directly. Redshift's three version (0.184) matches the
-package's minimum.
+The package ships TypeScript source, which Vite compiles directly. Two config changes make the link work, in both
+`gameClient/vite.config.ts` and `webClient/astro.config.mts` (the website embeds the game at `/play` and `/dev/arena`):
 
-`gameClient/vite.config.ts`: make sure there is exactly **one** copy of three. A linked package would otherwise resolve
-`three` from its own `node_modules`, and two copies of three break `NodeMaterial`/`instanceof` checks:
+- `resolve.dedupe` includes `"three"`. A linked package would otherwise resolve three from its own `node_modules`, and
+  two copies of three break `NodeMaterial`/`instanceof` checks.
+- `server.fs.allow` includes the package's real path, since it lives outside the Redshift repo.
 
-```ts
-resolve: {
-    dedupe: ["three"],
-    alias: [ /* existing aliases */ ],
-},
-```
+The link means a Redshift build needs this repo checked out next to `redshift/`. A git or registry dependency would
+remove that requirement once the package is published.
+
+Editor-only caveat: TypeScript follows the symlink and reads three's types from this repo's `@types/three`, which is a
+different copy from Redshift's. Passing the renderer, camera or `world.object` across the boundary can therefore show
+type errors in the editor. Vite's dedupe means there is still only one three at runtime.
 
 ## 2. One ParticleWorld per game
 
-`Game.ts`:
+`Game.ts` creates the world in `#setupParticles_()`, before the factories that use it:
 
 ```ts
-import { ParticleWorld } from "tsl-particles/three";
-import { normalizeEffect } from "tsl-particles";
-
-#particles_ = new ParticleWorld();
-
-// setup (after the scene exists)
-this.Scene.add(this.#particles_.object);
-for (const id of ["explosion", "thruster", "shield-hit"]) {
-    const json = await fetch(`/content/effects/${id}.fx.json`).then((r) => r.json());
-    this.#particles_.register(normalizeEffect(json));
-}
-
-// onStep: after entityManager.lateStep, so effects see final entity transforms
-this.#entityManager_.lateStep(timeElapsed, totalTime);
-this.#particles_.update(timeElapsed, this.Camera); // camera enables sort: "distance" (smoke)
-
-// teardown
-this.#particles_.dispose();
+const particles = new ParticleWorld({ renderer: this.Renderer, budget: { maxParticles: 40_000 }, lights: { max: 8 } });
+this.Scene.add(particles.object);
+for (const id of PARTICLE_EFFECTS) particles.register(normalizeEffect(await (await fetch(`/content/effects/${id}.fx.json`)).json()));
 ```
 
-Effect files live in `content/effects/*.fx.json`; `examples/` in this repo has three to start from. Registering
-compiles the effect and builds its GPU materials once. Spawning after that is allocation-light: simulations are pooled
-and the GPU buffers are shared.
+It updates in `onStep` right after `entityManager.lateStep`, so effects see final entity transforms, and is disposed in
+`destroy()`. Registering compiles each effect and builds its GPU materials once; spawning afterwards is
+allocation-light.
 
-## 3. Attached effects: `ParticleEffectComponent`
+Effect files live in `redshift/content/effects/`: `explosion`, `shield-hit`, `hull-hit` and `thruster`. They were
+derived from this repo's examples for space: no gravity or ground bounce (y = 0 is the ships' plane), no rising
+smoke, and LOD/cull distances for a camera ~100 units out. Edit them directly (or in the Phase 2 editor). To add an
+effect, drop the file in and add its id to `PARTICLE_EFFECTS`.
 
-Copy `particle-effect.ts` to `gameClient/engine/entityManagement/components/particle-effect.ts` and register it in
-`register.ts`:
+## 3. Impacts: `EffectSpawner`
 
-```ts
-import { ParticleEffectComponent } from "./components/particle-effect.ts";
-Entity.registerComponent("ParticleEffectComponent", ParticleEffectComponent);
-```
+`engine/render/vfx/effect-spawner.ts` keeps its API (`explosion(position, scale)`, `shieldHit(position)`) plus a new
+`hullHit(position)`, and spawns fire-and-forget particle effects instead of an entity with a sphere mesh per hit.
+`ProjectileComponent` uses `hullHit` for unshielded hull impacts. Each emitter of an effect is one draw call no matter
+how many instances are alive, so a busy fight costs the same draw calls as a single hit. The size multipliers at the top
+of the file account for the gameplay camera being further out than the playground's.
 
-Example: an engine trail on a ship (ship forward is +Z; the thruster effect exhausts along -Z):
+## 4. Thrusters: `ParticleEffectComponent`
 
-```ts
-entity.addComponent("ParticleEffectComponent", {
-    world: particles,
-    effect: "thruster",
-    offset: new THREE.Vector3(0, 0, -1.4), // nozzle, entity space
-    velocityFrom: "ShipEngineComponent", // inherit-velocity uses the engine's real velocity
-    params: { throttle: 0 },
-});
+`particle-effect.ts` (copied to `engine/entityManagement/components/`, registered in `register.ts`) attaches an
+effect to an entity. It follows the entity in `onLateStep`, can inherit velocity from another component, and has a
+`drive(effect, entity)` hook for per-frame parameters. On dispose it stops spawning and lets live particles fade
+(`lingerOnDispose`, default true), so a destroyed ship's trail doesn't pop out of existence.
 
-// e.g. in an input or engine component:
-(entity.getComponent("ParticleEffectComponent") as ParticleEffectComponent).setParam("throttle", actions.forward ? 1 : 0.1);
-```
+`ShipFactory` gives every ship a thruster at its stern (the hitbox's rearmost point; ships face +Z). Velocity is
+inherited from `ShipEngineComponent`. The `drive` hook does two things:
+- **Throttle:** `throttle` is 1 while `InputControllerComponent` reports forward thrust, otherwise 0.15 (idle).
+- **Docking:** the exhaust stops while the ship model is hidden.
 
-When the entity dies, the component stops spawning and lets live particles fade (`lingerOnDispose`, default true), so
-a destroyed ship's trail doesn't pop out of existence.
+Remote ships have no input component, so they idle.
 
-The component runs in `onLateStep`. Entity components have finished moving by then, and `ParticleWorld.update` runs
-right after.
+`ParticleEmitterComponent` and `engine/particles/particle-system.ts` (the old particle system) are still registered
+but unused by gameplay; `EffectComponent` is now unused too. They can be deleted when convenient.
 
-`ParticleEmitterComponent` and `engine/particles/particle-system.ts` can be deleted once nothing uses them. Today only
-`register.ts` references them.
+## One-shot effects elsewhere
 
-## 4. One-shot effects: no entity needed
-
-Explosions and impacts don't need an entity. Fire and forget:
+Anything can fire an effect without an entity:
 
 ```ts
 particles.spawn("explosion", { position, scale });
 ```
-
-`EffectSpawner.explosion` / `shieldHit` can become one-liners like this, which removes the per-effect entity +
-`StaticObjectComponent` + `EffectComponent` and a mesh/material allocation per hit. Each emitter of an effect is one
-draw call no matter how many instances are alive, so 50 simultaneous impacts cost the same draw calls as one.
 
 If an effect needs to follow something for its whole life (a projectile's tracer), keep the handle and call
 `handle.setTransform(...)` each frame, or use the component.
@@ -118,9 +94,7 @@ particles.registerGeometry("hull-shard", gltf.scene.getObjectByName("Shard").geo
 
 ## Scalability
 
-```ts
-#particles_ = new ParticleWorld({ budget: { maxParticles: 40_000 }, quality: settings.effectsQuality, renderer: this.Renderer });
-```
+Redshift sets `budget: { maxParticles: 40_000 }`. A graphics setting can feed `quality` (0..1) the same way.
 
 - Mark the player's own effects `scalability.essential: true` so a busy battle never thins out your own engines or
   guns. Everyone else's effects share the budget.
@@ -134,14 +108,14 @@ particles.registerGeometry("hull-shard", gltf.scene.getObjectByName("Shard").geo
 
 ## Sort groups
 
-Give the alpha-blended smoke/dust sprites, and the fire and glows that sit among them, one `sortGroup` (e.g. `"fx"`)
+The explosion's smoke, fire and flash share the `"fx"` sort group. Give the alpha-blended smoke/dust sprites, and the fire and glows that sit among them, one `sortGroup` (e.g. `"fx"`)
 across effects. Smoke from one explosion then layers correctly against fire from another, and with engine haze, in a
-single draw call. The examples' campfire and explosion already share `"fx"`. Keep tracers, sparks and other additive
+single draw call. Keep tracers, sparks and other additive
 effects that don't overlap smoke out of the group: they're cheaper on their own.
 
 ## GPU emitters
 
-Pass the renderer (`renderer: this.Renderer`) and big ambient effects can run on the GPU with `"sim": "gpu"`: nebula
+Redshift already passes the renderer, so big ambient effects can run on the GPU with `"sim": "gpu"`: nebula
 dust around a station, a debris field, a sun's corona, alpha-blended smoke from a burning capital ship (sorted on the
 GPU). Sub-emitters work when both ends are `"sim": "gpu"`, so a large set-piece (a fleet-wide fireworks salute, a
 shattering asteroid shedding dust) can stay entirely on the GPU. GPU instances of one effect are batched into one
@@ -155,9 +129,9 @@ Play each GPU effect once during loading: three compiles compute pipelines on fi
 
 ## Per-particle lights
 
-`new ParticleWorld({ renderer, lights: { max: 16 } })` adds a fixed pool of point lights to the particle root.
-`light` renderers then light the scene from particles: explosions flash on nearby hulls, engine exhaust glows on the
-ship, a burning wreck flickers. Size the pool once (changing the light count recompiles lit materials) and keep it
+Redshift's world has an 8-light pool (`lights: { max: 8 }`). The explosion's fireball and the impact flashes carry
+`light` renderers, so hits flash on nearby hulls. Exhaust glowing on the ship or a burning wreck flickering would work
+the same way. Size the pool once (changing the light count recompiles lit materials) and keep it
 small. If Redshift moves to many lights, three's `DynamicLighting` or `TiledLighting` makes each light cheaper. The
 pool lights the most important candidates world-wide each frame, so a big battle degrades gracefully.
 

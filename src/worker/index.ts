@@ -1,11 +1,11 @@
-// tsl-particles/worker: run the CPU simulation off the main thread.
+// elate-particles/worker: run the CPU simulation off the main thread.
 //
 //   // particles.worker.ts
-//   import { startParticleWorker } from "tsl-particles/worker";
+//   import { startParticleWorker } from "elate-particles/worker";
 //   import "./my-custom-modules"; // register custom modules here too
 //   startParticleWorker();
 //
-// and on the main thread use WorkerParticleWorld (tsl-particles/three).
+// and on the main thread use WorkerParticleWorld (elate-particles/three).
 
 import { createParticleWorkerHost } from "./host";
 import type { FromWorker, ToWorker } from "./protocol";

@@ -1,4 +1,4 @@
-// three.js (WebGPU / TSL) runtime for tsl-particles.
+// three.js (WebGPU / TSL) runtime for elate-particles.
 import "../index";
 
 export { ParticleWorld, ParticleEffect, type ParticleWorldOptions, type SpawnOptions, type ParticleWorldStats } from "./world";

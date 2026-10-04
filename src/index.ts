@@ -1,6 +1,6 @@
-// tsl-particles core: documents, module registry, commands and the CPU
+// elate-particles core: documents, module registry, commands and the CPU
 // simulator. No three.js, no DOM — safe for Node (MCP servers, validation,
-// build tools). Rendering lives in "tsl-particles/three".
+// build tools). Rendering lives in "elate-particles/three".
 
 import { registerBuiltinModules } from "./modules";
 

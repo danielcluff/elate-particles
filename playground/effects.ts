@@ -59,7 +59,7 @@ function effect(
   parameters: EffectDoc["parameters"] = [],
 ): EffectDoc {
   return {
-    format: "tsl-particles",
+    format: "elate-particles",
     version: 1,
     id,
     name,

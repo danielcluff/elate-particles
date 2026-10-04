@@ -289,7 +289,7 @@ export class ParticleWorld {
     const registered = this.#geometries.get(name);
     if (registered) return () => registered.clone();
     if (createBuiltinMesh(name)) return () => createBuiltinMesh(name)!;
-    this.#warn(`tsl-particles: mesh "${name}" is not registered (emitter "${e.doc.name}"); drawing boxes until it is`);
+    this.#warn(`elate-particles: mesh "${name}" is not registered (emitter "${e.doc.name}"); drawing boxes until it is`);
     return () => createBuiltinMesh("box")!;
   }
 
@@ -366,7 +366,7 @@ export class ParticleWorld {
       reg.lights.push(lightDocs.map((r) => lightSource(e, r)));
       if (lightDocs.length && !this.#lights && !this.#lightsWarned) {
         this.#lightsWarned = true;
-        this.#warn(`tsl-particles: "${doc.name}" has light renderers but ParticleWorld has no light pool (options.lights.max); they light nothing`);
+        this.#warn(`elate-particles: "${doc.name}" has light renderers but ParticleWorld has no light pool (options.lights.max); they light nothing`);
       }
       const drawDocs = e.renderers.filter((r): r is DrawRendererDoc => r.type !== "light");
       if (onGpu[e.index]) {
@@ -381,7 +381,7 @@ export class ParticleWorld {
           if (r.type === "sprite" && r.sortGroup && r.blend !== "opaque") {
             const member = this.#group(r.sortGroup).add(doc.id, e, r);
             if (member !== null) return { renderer: r, material: new THREE.MeshBasicNodeMaterial(), base, group: { name: r.sortGroup, member } };
-            this.#warn(`tsl-particles: "${doc.name}" / ${e.doc.name} can't join sort group "${r.sortGroup}" (its texture differs from the group's); drawn on its own`);
+            this.#warn(`elate-particles: "${doc.name}" / ${e.doc.name} can't join sort group "${r.sortGroup}" (its texture differs from the group's); drawn on its own`);
           }
           return { renderer: r, material: this.#createMaterial(e, r, lut), base };
         });
@@ -400,7 +400,7 @@ export class ParticleWorld {
             continue;
           }
           this.#warn(
-            `tsl-particles: "${doc.name}" / ${e.doc.name} can't join sort group "${r.sortGroup}" (its texture differs from the group's); drawn on its own`,
+            `elate-particles: "${doc.name}" / ${e.doc.name} can't join sort group "${r.sortGroup}" (its texture differs from the group's); drawn on its own`,
           );
         }
         const { batch, material } = this.#createBatch(e, r, lut);
@@ -588,7 +588,7 @@ export class ParticleWorld {
     } else if (!this.#warnedNoCamera) {
       for (const reg of this.#effects.values())
         if (reg.template.emitters.some((em) => em.renderers.some((r) => r.sort === "distance" || (r.type === "sprite" && r.sortGroup)))) {
-          this.#warn('tsl-particles: an emitter uses sort: "distance" or a sortGroup but ParticleWorld.update() was called without a camera; it is drawn unsorted');
+          this.#warn('elate-particles: an emitter uses sort: "distance" or a sortGroup but ParticleWorld.update() was called without a camera; it is drawn unsorted');
           this.#warnedNoCamera = true;
           break;
         }
@@ -836,7 +836,7 @@ export class ParticleWorld {
     const key = `${doc.id}/${e.id}`;
     if (!this.#gpuWarned.has(key)) {
       this.#gpuWarned.add(key);
-      this.#warn(`tsl-particles: "${doc.name}" / ${e.doc.name} runs on the CPU instead of the GPU: ${reasons.join("; ")}`);
+      this.#warn(`elate-particles: "${doc.name}" / ${e.doc.name} runs on the CPU instead of the GPU: ${reasons.join("; ")}`);
     }
     return false;
   }
@@ -856,7 +856,7 @@ export class ParticleWorld {
         if (off === undefined) continue;
         on[e.index] = false;
         changed = true;
-        this.#warn(`tsl-particles: "${doc.name}" / ${e.doc.name} runs on the CPU instead of the GPU: its sub-emitter partner ${emitters[off].doc.name} runs on the CPU (set sim: "gpu" on both)`);
+        this.#warn(`elate-particles: "${doc.name}" / ${e.doc.name} runs on the CPU instead of the GPU: its sub-emitter partner ${emitters[off].doc.name} runs on the CPU (set sim: "gpu" on both)`);
       }
     }
     return on;
@@ -901,7 +901,7 @@ export class ParticleWorld {
         at.shared = reg.gpuPools;
         at.sharedLanes = lanes;
         at.lanes.push(...lanes);
-      } else this.#warn(`tsl-particles: "${reg.template.doc.name}" has more GPU instances than its pools can hold; extra instances simulate nothing on the GPU`);
+      } else this.#warn(`elate-particles: "${reg.template.doc.name}" has more GPU instances than its pools can hold; extra instances simulate nothing on the GPU`);
     }
     if (reg.gpuLocal.length) {
       // local-space groups: a single-lane set per instance, its meshes placed at the instance

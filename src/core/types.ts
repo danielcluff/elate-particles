@@ -9,7 +9,7 @@
 //   update  runs every frame on every live particle (forces, drag, noise…)
 //   render  evaluated on the GPU from the particle's normalised age (size/colour over life)
 
-export const EFFECT_FORMAT = "tsl-particles";
+export const EFFECT_FORMAT = "elate-particles";
 export const EFFECT_VERSION = 1;
 
 export type Vec3 = [number, number, number];

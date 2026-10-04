@@ -10,7 +10,7 @@ const EVENT_STRIDE = 11;
 const MAX_EVENTS = 512;
 
 /**
- * GPU simulation target (see tsl-particles/three GpuEmitter). When set, spawn
+ * GPU simulation target (see elate-particles/three GpuEmitter). When set, spawn
  * requests are forwarded here instead of creating CPU particles; spawn timing,
  * LOD and budget logic stay on the CPU.
  */

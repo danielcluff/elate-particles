@@ -4,8 +4,50 @@
     {
       "name": "playground",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["vite", "playground", "--port", "5180", "--strictPort"],
+      "runtimeArgs": [
+        "vite",
+        "playground",
+        "--port",
+        "5180",
+        "--strictPort"
+      ],
       "port": 5180
+    },
+    {
+      "name": "redshift",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "/Users/daniel/dev/redshift/gameClient",
+        "exec",
+        "vite",
+        "--port",
+        "4400",
+        "--strictPort"
+      ],
+      "port": 4400
+    },
+    {
+      "name": "redshift-web",
+      "runtimeExecutable": "/Users/daniel/dev/redshift/webClient/node_modules/.bin/astro",
+      "runtimeArgs": [
+        "dev",
+        "--root",
+        "/Users/daniel/dev/redshift/webClient",
+        "--port",
+        "4322"
+      ],
+      "port": 4322
+    },
+    {
+      "name": "editor",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "/Users/daniel/dev/elate-particles-editor",
+        "dev"
+      ],
+      "port": 5190
     }
   ]
 }

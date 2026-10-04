@@ -1,4 +1,4 @@
-# tsl-particles
+# elate-particles
 
 Data-driven particle effects for three.js (WebGPU / TSL).
 
@@ -35,8 +35,8 @@ Design, research and roadmap: [docs/DESIGN.md](docs/DESIGN.md). Redshift wiring:
 
 ```ts
 import * as THREE from "three/webgpu";
-import { ParticleWorld } from "tsl-particles/three";
-import { normalizeEffect } from "tsl-particles";
+import { ParticleWorld } from "elate-particles/three";
+import { normalizeEffect } from "elate-particles";
 
 const world = new ParticleWorld({ budget: { maxParticles: 50_000 }, quality: settings.effectsQuality });
 scene.add(world.object);
@@ -58,7 +58,7 @@ renderer.setAnimationLoop(() => {
 Build effects in code with the same commands the editor will use:
 
 ```ts
-import { createEffect, executeCommand } from "tsl-particles";
+import { createEffect, executeCommand } from "elate-particles";
 
 const fx = createEffect("Sparks", { emitter: false });
 executeCommand(fx, {
@@ -79,9 +79,9 @@ executeCommand(fx, {
 
 | Import | Runs in | What |
 | --- | --- | --- |
-| `tsl-particles` | anywhere | Types, values, module registry, doc helpers, commands, CPU simulator. No three, no DOM |
-| `tsl-particles/three` | browser | `ParticleWorld`, `WorkerParticleWorld`, handles, materials, batches, GPU emitters |
-| `tsl-particles/worker` | worker | `startParticleWorker()` for the worker side of `WorkerParticleWorld` |
+| `elate-particles` | anywhere | Types, values, module registry, doc helpers, commands, CPU simulator. No three, no DOM |
+| `elate-particles/three` | browser | `ParticleWorld`, `WorkerParticleWorld`, handles, materials, batches, GPU emitters |
+| `elate-particles/worker` | worker | `startParticleWorker()` for the worker side of `WorkerParticleWorld` |
 
 `three >= 0.184` is a peer dependency. The package ships TypeScript source.
 

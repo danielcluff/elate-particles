@@ -49,17 +49,17 @@ What Phase 1 takes from each:
 The layering mirrors tsl-graph (`core` → `runtime` → `editor` → `server`), so the two can merge cleanly in Phase 3:
 
 ```
-tsl-particles             (no three, no DOM: runs in Node, in workers and in tests)
+elate-particles             (no three, no DOM: runs in Node, in workers and in tests)
 ├── core/      EffectDoc types, FloatValue/ColorValue, param schema, module registry,
 │              doc helpers (create/normalize/validate), command layer (executeCommand)
 ├── modules/   built-in modules: schema + CPU implementation (or GPU bake)
 └── sim/       compiler (doc → template), ParticleBuffer (SoA), EmitterSim, EffectSim
 
-tsl-particles/three       (three/webgpu + three/tsl)
+elate-particles/three       (three/webgpu + three/tsl)
 └── three/     ParticleWorld (registry, pooling, update), SpriteBatch (instanced
                draw per emitter), TSL sprite material, LUT textures
 
-Phase 2 adds: tsl-particles/editor (Solid), tsl-particles/server (MCP + bridge + AI chat)
+Phase 2 adds: elate-particles/editor (Solid), elate-particles/server (MCP + bridge + AI chat)
 ```
 
 Every edit goes through `executeCommand(doc, command)`. That covers the editor UI, MCP tools, the AI chat agent, and
@@ -441,7 +441,7 @@ The same API as `ParticleWorld`, with the CPU simulation in a Web Worker:
 
 ```ts
 // particles.worker.ts
-import { startParticleWorker } from "tsl-particles/worker";
+import { startParticleWorker } from "elate-particles/worker";
 import "./my-custom-modules"; // custom modules must be registered in the worker too
 startParticleWorker();
 
@@ -672,13 +672,13 @@ editor (Phase 2).
 
 ## 3. Redshift integration (Phase 1)
 
-See [`integrations/redshift/README.md`](../integrations/redshift/README.md). In summary:
+Applied in Redshift (gameClient links this repo). See [`integrations/redshift/README.md`](../integrations/redshift/README.md). In summary:
 
 - One `ParticleWorld` owned by `Game.ts`, updated right after `entityManager.lateStep`.
 - `ParticleEffectComponent` for effects attached to entities (thrusters, shield glows). It follows an entity-space
   offset, reads velocity from `ShipEngineComponent`, and on death lets particles fade instead of popping.
-- `particles.spawn("explosion", { position, scale })` for one-shots. This replaces `EffectSpawner`'s entity-per-effect
-  meshes and the unused `ParticleEmitterComponent`.
+- `particles.spawn("explosion", { position, scale })` for one-shots. `EffectSpawner` now spawns `explosion`,
+  `shield-hit` and `hull-hit` this way instead of an entity with a sphere mesh per hit; every ship gets a `thruster`.
 - Effects ship as `content/effects/*.fx.json`, which is the same file the editor saves.
 
 ---
@@ -691,8 +691,8 @@ Mirror tsl-graph so Phase 3 is a merge, not a rewrite:
 
 | Import | What |
 | --- | --- |
-| `tsl-particles/editor` | `<EffectEditor host projectId />` (Solid) and `mountEffectEditor(el, props)` for any framework |
-| `tsl-particles/server` | `createEffectServer({ store, mcp: "graph" \| "parent", ai })`: MCP endpoint, WebSocket bridge to open editors, AI chat loop |
+| `elate-particles/editor` | `<EffectEditor host projectId />` (Solid) and `mountEffectEditor(el, props)` for any framework |
+| `elate-particles/server` | `createEffectServer({ store, mcp: "graph" \| "parent", ai })`: MCP endpoint, WebSocket bridge to open editors, AI chat loop |
 | `EffectHost` | Same contract as `GraphHost`: `projects.load/save/create`, `openProject`, `exit`, `projectUrl`, `server`, `mcp`, `ai.getApiKey` |
 
 Tech: Solid 2, Tailwind v4, Geist/Geist Mono, lucide icons, and **tsl-graph's UI kit and tokens** (`tsl-graph/ui`,
@@ -792,7 +792,7 @@ fx-studio/
 │   ├── studio-kit/      shared: UI kit + theme, AI chat (client + provider loop), bridge,
 │   │                    MCP plumbing, host contracts, asset store interface
 │   ├── tsl-graph/       shader editor (moved in; core/runtime/editor/server unchanged)
-│   └── tsl-particles/   this repo
+│   └── elate-particles/   this repo
 └── apps/
     └── studio/          the app: project browser, asset library, docked editors, scene preview
 ```
@@ -826,7 +826,7 @@ on it. That's the only change Phase 3 asks of tsl-graph.
 
 ### Decisions to confirm
 
-1. **Package name.** `tsl-particles` is chosen to pair with `tsl-graph`.
+1. **Package name.** `elate-particles` (renamed from `tsl-particles`, chosen to pair with `tsl-graph`). Effect files use `"format": "elate-particles"` (`EFFECT_FORMAT`); files with the old `"tsl-particles"` still load.
 2. **Stack UI over a graph** for particle behaviour, with tsl-graph for materials and later custom modules (section 1).
 3. **CPU-first simulation**, with `sim: "gpu"` per emitter for huge effects (done). Redshift's effects are hundreds to tens of thousands of
    particles, where CPU simulation is cheaper overall and supports sub-emitters and gameplay hooks.
