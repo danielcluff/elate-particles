@@ -94,12 +94,20 @@ rig.setSignals({ throttle: input.forward ? 1 : 0.2 }).update(dt);
 // later: rig.dispose() lets live particles finish (a destroyed ship's trail fades)
 ```
 
+`DepthShell` draws an effect on a model-shaped shell (shields that take the ship's own shape): a shared
+`DepthShellCapture` renders expanded, model-only copies of each model's depth and normals, and each shell is one
+full-screen pass that rebuilds its model's surface (position, normal, Fresnel) for your shader.
+
+`HitBuffer` keeps recent hits on a surface for shaders that react where they were struck (shield ripples, scorch
+marks): add hits in the model's space, call `update()` each frame, and read `hits.nearest(positionLocal)` (distance,
+age and strength of the nearest live hit) in TSL.
+
 ## Entry points
 
 | Import | Runs in | What |
 | --- | --- | --- |
 | `elate-particles` | anywhere | Types, values, module registry, doc helpers, commands, CPU simulator, rig documents. No three, no DOM |
-| `elate-particles/three` | browser | `ParticleWorld`, `WorkerParticleWorld`, `RigInstance`, handles, materials, batches, GPU emitters |
+| `elate-particles/three` | browser | `ParticleWorld`, `WorkerParticleWorld`, `RigInstance`, `HitBuffer`, `DepthShell`, handles, materials, batches, GPU emitters |
 | `elate-particles/worker` | worker | `startParticleWorker()` for the worker side of `WorkerParticleWorld` |
 
 `three >= 0.184` is a peer dependency. The package ships TypeScript source.

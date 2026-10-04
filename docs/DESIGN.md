@@ -820,8 +820,15 @@ original monorepo sketch in a few ways:
   velocity from the movement), and editing the doc (`setDoc`) keeps running effects unless their effect or socket
   changed. redshift-fx edits rigs per ship and weapon (`ship-fx.json`, `weapon-fx.json`).
 - **Shader targets** live in tsl-graph (`registerTarget`); the particle graph kind became its built-in `particle` target.
-- **Next:** shields that react
-  where they are hit, and event timelines played by a small player in this runtime.
+- **Hits** (`src/three/hits.ts`): `HitBuffer` is a ring buffer of recent hits (position in the owner's model space,
+  time, strength) as uniform arrays, with a TSL lookup of the nearest live hit (distance, age, strength). It keeps its
+  own clock, advanced by `update()` each frame: three's per-frame uniform callbacks didn't run for a uniform used only
+  inside the lookup's `Fn`/`Loop`. Redshift's shield style reads it as `hitDistance` / `hitAge` / `hitStrength`.
+- **Depth shells** (`src/three/depth-shell.ts`): Redshift's depth-shaped shield technique, moved here so the game and
+  the studio draw shields with the same code. `DepthShellCapture` (one per camera) renders expanded (1.05 around the
+  model origin), model-only proxies into a depth/normal/owner target; each `DepthShell` is a full-screen pass that
+  reconstructs its model's surface, keeps only pixels its model owns, and depth-tests against the scene.
+- **Next:** event timelines played by a small player in this runtime.
 
 See redshift-fx's `docs/DESIGN.md` for the plan.
 
@@ -836,7 +843,7 @@ See redshift-fx's `docs/DESIGN.md` for the plan.
 | 1.2 ✅ | Runtime gaps | mesh + ribbon renderers, per-particle trails, multiple renderers per emitter, sorting + sort groups, soft particles + camera fade, budget/LOD/culling, worker simulation |
 | **2** ✅ | Effect editor | Stack UI, value widgets, timeline, viewport, store and undo, MCP + AI chat (elate-particles-editor); `particle` graph kind in tsl-graph and graph materials for sprites |
 | 2.1 ✅ | GPU backend | TSL compute implementations for built-in modules, `sim: "gpu"` per emitter, CPU fallback |
-| **3** | FX studio | redshift-fx: studio shell over Redshift content ✅, rigs for ships and weapons ✅, shader targets ✅; reactive shields, event timelines |
+| **3** | FX studio | redshift-fx: studio shell over Redshift content ✅, rigs for ships and weapons ✅, shader targets ✅, reactive shields ✅; event timelines |
 
 ### Decisions to confirm
 
