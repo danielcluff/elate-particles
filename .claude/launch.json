@@ -48,6 +48,16 @@
         "dev"
       ],
       "port": 5190
+    },
+    {
+      "name": "tsl-graph",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "/Users/daniel/dev/tsl-graph",
+        "dev"
+      ],
+      "port": 5173
     }
   ]
 }

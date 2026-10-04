@@ -124,8 +124,21 @@ export interface RendererBase {
   sort?: SortMode;
 }
 
+/**
+ * A sprite's look from a shader graph (a tsl-graph particle shader). The host
+ * resolves `shaderId` with ParticleWorldOptions.shaders; the graph's colour and
+ * opacity replace the renderer's own (colour × shape). Unresolved ids fall back
+ * to the renderer's own look.
+ */
+export interface GraphMaterialRef {
+  kind: "graph";
+  shaderId: string;
+}
+
 export interface SpriteRendererDoc extends RendererBase {
   type: "sprite";
+  /** Custom look from a shader graph (see GraphMaterialRef). Sprites with one don't join sort groups. */
+  material?: GraphMaterialRef;
   blend: BlendMode;
   shape: SpriteShape;
   /** Texture URL or host asset id (shape = "texture"); resolved by the runtime's `loadTexture`. */

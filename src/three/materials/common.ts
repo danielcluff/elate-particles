@@ -26,6 +26,35 @@ export const PARTICLE_ATTRIBUTES = {
   d: "pD",
 } as const;
 
+/** Per-particle nodes a particle shader reads (ParticleMaterialContext.nodes). */
+export interface ParticleShaderInputs {
+  /** Normalised age 0..1. */
+  age: Node;
+  /** Per-particle random 0..1. */
+  seed: Node;
+  /** Lifetime in seconds. */
+  life: Node;
+  /** World velocity (vec3). */
+  velocity: Node;
+  /** Base colour × colour over life (vec4, linear). */
+  color: Node;
+  /** Sprite UV after flipbook mapping (vec2). */
+  uv: Node;
+  /** Shape mask / texture sample (vec4; rgb is white for procedural shapes). */
+  shape: Node;
+  /** Seconds, shared by every particle material in the world. */
+  time: Node;
+}
+
+/**
+ * A sprite's look as code: called once per material the world builds for a
+ * renderer with `material: { kind: "graph", shaderId }` (see
+ * ParticleWorldOptions.shaders). Returned `color` (vec3) and `opacity` (float)
+ * replace the renderer's colour × shape; leave one out (or null) to keep it.
+ * tsl-graph's createParticleShader produces these from particle shader projects.
+ */
+export type ParticleShader = (inputs: ParticleShaderInputs) => { color?: Node | null; opacity?: Node | null };
+
 /** The nodes a material hook can build on (see ParticleWorldOptions.materialHook). */
 export interface ParticleMaterialContext {
   renderer: RendererType;
@@ -57,6 +86,8 @@ export interface MaterialOptions {
   time: Node;
   loadTexture: (url: string) => THREE.Texture;
   hook?: (ctx: ParticleMaterialContext) => void;
+  /** Resolves `material: { kind: "graph", shaderId }` (undefined: keep the renderer's own look). */
+  shader?: (shaderId: string) => ParticleShader | undefined;
 }
 
 /** 64×2 half-float LUT: row 0 colour over life (RGBA), row 1 size over life (R). */

@@ -5,6 +5,7 @@ import * as THREE from "three/webgpu";
 import {
   abs,
   cameraProjectionMatrix,
+  clamp,
   cos,
   float,
   floor,
@@ -102,17 +103,26 @@ export function createSpriteMaterial(tpl: EmitterTemplate, r: SpriteRendererDoc,
 
   // colour work per vertex (constant over a quad), shape per fragment
   const color: Node = varying(pD.mul(ol.color));
+  const nodes = { age, seed, life: pC.z, velocity: pB.xyz, color, uv: spriteUv, shape, time: opts.time };
+  let rgb: Node = color.xyz.mul(shape.xyz);
   let alpha: Node = color.w.mul(shape.w);
+  // a shader graph replaces colour and/or opacity (soft-particle fades still apply on top)
+  const shader = r.material?.kind === "graph" ? opts.shader?.(r.material.shaderId) : undefined;
+  if (shader) {
+    const out = shader(nodes);
+    if (out.color) rgb = out.color;
+    if (out.opacity) alpha = clamp(out.opacity, 0, 1);
+  }
   const fade = depthFades(r, varying(viewPos.z));
   if (fade) alpha = alpha.mul(fade);
-  applyBlend(material, r.blend, color.xyz.mul(shape.xyz), alpha);
+  applyBlend(material, r.blend, rgb, alpha);
 
   opts.hook?.({
     renderer: "sprite",
     rendererDoc: r,
     material,
     emitter: tpl,
-    nodes: { age, seed, life: pC.z, velocity: pB.xyz, color, uv: spriteUv, shape, time: opts.time },
+    nodes,
   });
   return material;
 }

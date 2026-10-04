@@ -20,6 +20,9 @@ Data-driven particle effects for three.js (WebGPU / TSL).
 - **Per-particle lights** (`light` renderer): a stable random fraction of an emitter's particles carry point lights
   from a fixed world pool (`ParticleWorld({ lights: { max } })`), CPU and GPU emitters alike; the most important
   candidates are lit each frame.
+- **Shader graph materials**: a sprite renderer with `material: { kind: "graph", shaderId }` takes its colour and
+  opacity from a [tsl-graph](https://github.com/danielcluff/tsl-graph) particle shader
+  (`new ParticleWorld({ shaders: (id) => createParticleShader(projects[id]).shader })`).
 - **Worker simulation** (`WorkerParticleWorld`): same API, CPU simulation in a Web Worker, packed arrays ping-ponged
   back as transferables. ~7 ms of main-thread time freed in the stress scene.
 - **Batched rendering.** Every live instance of an emitter shares one instanced draw call, so 1,900 explosions render

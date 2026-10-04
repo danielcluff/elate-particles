@@ -184,6 +184,12 @@ export function validateStructure(doc: EffectDoc): Issue[] {
         const v = r.type !== "mesh" ? r[key] : undefined;
         if (v !== undefined && !(v >= 0)) issues.push({ level: "error", message: `${key} must be ≥ 0`, ...where });
       }
+      if (r.type === "sprite" && r.material !== undefined) {
+        const m = r.material as { kind?: unknown; shaderId?: unknown };
+        if (m?.kind !== "graph" || typeof m.shaderId !== "string" || !m.shaderId)
+          issues.push({ level: "error", message: 'material must be { kind: "graph", shaderId }', ...where });
+        else if (r.sortGroup) issues.push({ level: "warning", message: "Sprites with a shader graph can't join a sort group; drawn on their own", ...where });
+      }
       if (r.type === "sprite" && r.sortGroup !== undefined) {
         if (typeof r.sortGroup !== "string" || !r.sortGroup) issues.push({ level: "error", message: "sortGroup must be a non-empty string", ...where });
         else if (r.blend === "opaque") issues.push({ level: "warning", message: "Opaque sprites can't join a sort group; drawn on their own", ...where });

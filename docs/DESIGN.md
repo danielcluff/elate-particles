@@ -7,9 +7,9 @@ A data-driven particle system for three.js (WebGPU/TSL). It has three consumers:
 3. **An FX studio** that unifies the particle tool and tsl-graph into a small effects "engine" (Phase 3, separate
    repo).
 
-Phase 1, the runtime library, is implemented in this repo. Phase 2's editor UI is implemented in
-[elate-particles-editor](https://github.com/danielcluff/elate-particles-editor), which uses this repo as a git
-submodule; its MCP server and AI chat are still to come. Phase 3 is designed below.
+Phase 1, the runtime library, is implemented in this repo. Phase 2 is implemented in
+[elate-particles-editor](https://github.com/danielcluff/elate-particles-editor) (editor, MCP server, AI chat), which
+uses this repo as a git submodule, and in tsl-graph (the `particle` graph kind). Phase 3 is designed below.
 
 ---
 
@@ -660,8 +660,8 @@ multiple renderers, GPU and worker simulation) are closed, and GPU emitters now 
 curves over age, batching across instances, ribbons (sorted too), sort groups, frustum culling and pools that shrink
 after a peak.
 Every renderer feature now runs on the GPU too, and culled GPU instances cost neither simulation (with
-`pauseOffscreen`) nor vertex work. Particles can light the scene (`light` renderers). Candidates next: the
-editor's MCP server and AI chat (Phase 2).
+`pauseOffscreen`) nor vertex work. Particles can light the scene (`light` renderers), and sprites can take their look
+from a tsl-graph particle shader (`material: { kind: "graph" }`). Candidates next: the FX studio (Phase 3).
 
 ### three.js and framework compatibility
 
@@ -764,7 +764,8 @@ The same tool table serves the MCP server and the in-editor chat (as in tsl-grap
 `list_effects`, `create_effect`, `open_effect`, `get_effect`, `list_module_types`, `get_module_type`, `add_emitter`,
 `update_emitter`, `remove_emitter`, `duplicate_emitter`, `add_module`, `update_module`, `remove_module`, `move_module`,
 `add_renderer`, `set_renderer`, `remove_renderer`, `set_sub_emitters`, `set_parameter`, `apply_operations` (atomic batch with `$refs`),
-`validate_effect`, `capture_preview` (screenshot of the live editor at time *t*), `get_stats`.
+`validate_effect`, `capture_preview` (screenshot of the live editor at time *t*), `get_stats`; also `rename_effect`,
+`move_emitter`, `remove_parameter`, and `list_shaders` when the host gives the server a shader source.
 
 Every tool is a thin wrapper over a `Command`, which already exists. The system prompt teaches the stage model and the
 `FloatValue`/`ColorValue` shapes. `describeModuleType` already produces agent-ready schemas. "Make the explosion
@@ -772,15 +773,23 @@ bigger and bluer" becomes one `apply_operations` call.
 
 ### Shader integration (the bridge to tsl-graph)
 
-`ParticleWorldOptions.materialHook` already exposes the particle nodes (age, seed, life, velocity, colour, flipbook UV,
-shape, time) to custom TSL. Phase 2 finishes the loop:
+`ParticleWorldOptions.materialHook` exposes the particle nodes (age, seed, life, velocity, colour, flipbook UV, shape,
+time) to custom TSL. Phase 2 closes the loop with shader graphs (implemented):
 
-1. tsl-graph gains a **`particle` graph kind** with input nodes *Particle Age*, *Particle Color*, *Particle Seed*,
-   *Particle Velocity*, *Sprite UV*, *Life* and an output node (*Particle Color/Opacity*).
-2. The sprite renderer gets `material: { kind: "graph", shaderId }`. The effect editor shows the referenced shader's
-   thumbnail with an "Edit in shader graph" button.
-3. At runtime the compiled graph body is evaluated through the hook (tsl-graph's `evaluateMaterial` path), with
-   particle nodes bound to the sprite attributes.
+1. **tsl-graph: a `particle` project kind** with one `particle` graph. Input nodes *Particle Age*, *Particle Life*,
+   *Particle Seed*, *Particle Velocity*, *Particle Color* (base × over life), *Sprite UV*, *Sprite Shape*; output node
+   *Particle Output* (Color vec3, Opacity float; an unconnected one keeps the renderer's colour × shape). The inputs
+   compile to free identifiers, so one compiled body is evaluated with different bindings: the runtime's sprite
+   attributes, the preview's fountain of test sprites, and node thumbnails (a 3×3 grid of sprites by age).
+2. **Runtime:** `SpriteRendererDoc.material?: { kind: "graph", shaderId }`. `ParticleWorldOptions.shaders(id)` returns
+   a `ParticleShader` (particle nodes in, `{ color?, opacity? }` out); the sprite material uses its outputs in place of
+   colour × shape (soft-particle fades still apply). Unresolved ids keep the built-in look (one warning).
+   `world.invalidateShader(id)` rebuilds the effects that use a shader after it changed. Sprites with a graph don't
+   join sort groups (the group's uber shader can't run arbitrary graphs); validation warns.
+3. **Glue:** `tsl-graph/particle`'s `createParticleShader(project)` turns a project into a `ParticleShader`. The
+   effect editor's host supplies a `ShaderSource` (`list`, `load`, `editUrl`, `create`); sprite renderer cards get a
+   material picker with the shader's thumbnail and "Edit in shader graph", and edited shaders reload when the editor
+   regains focus. A game does the same as the host: build each shader once and pass it to `shaders`.
 
 ---
 
@@ -822,7 +831,7 @@ on it. That's the only change Phase 3 asks of tsl-graph.
 | **1** ✅ | Runtime library | Core, 20 modules, CPU sim, batched TSL sprite/mesh/ribbon renderers, Redshift adapter, examples, tests, playground |
 | 1.1 | Redshift adoption | Wire `ParticleWorld` into `Game.ts`; thrusters on ships; replace `EffectSpawner`; delete the old particle system |
 | 1.2 ✅ | Runtime gaps | mesh + ribbon renderers, per-particle trails, multiple renderers per emitter, sorting + sort groups, soft particles + camera fade, budget/LOD/culling, worker simulation |
-| **2** | Effect editor | Stack UI, value widgets, timeline, viewport, store and undo ✅ (elate-particles-editor); MCP + AI chat, `particle` graph kind in tsl-graph |
+| **2** ✅ | Effect editor | Stack UI, value widgets, timeline, viewport, store and undo, MCP + AI chat (elate-particles-editor); `particle` graph kind in tsl-graph and graph materials for sprites |
 | 2.1 ✅ | GPU backend | TSL compute implementations for built-in modules, `sim: "gpu"` per emitter, CPU fallback |
 | **3** | FX studio | Monorepo, `studio-kit` extraction, asset model, prefabs, unified MCP, export bundle |
 

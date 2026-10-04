@@ -124,7 +124,7 @@ function apply(doc: EffectDoc, cmd: Command, refs: Refs): unknown {
     case "addModule": {
       const e = findEmitter(doc, ref(refs, cmd.emitterId));
       const def = getModuleDef(cmd.type);
-      if (!def) throw new CommandError(`Unknown module type "${cmd.type}". Use listModuleTypes to see what exists.`);
+      if (!def) throw new CommandError(`Unknown module type "${cmd.type}" (see list_module_types for the available types)`);
       if (cmd.params) checkModuleParams(cmd.type, cmd.params);
       if (def.multiple === false && e[def.stage].some((m) => m.type === cmd.type))
         throw new CommandError(`${def.label} is already in this emitter; update it instead`);

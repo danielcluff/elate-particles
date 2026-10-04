@@ -116,3 +116,16 @@ describe("commands", () => {
     expect(shape.params.find((p) => p.key === "shape")?.options).toContain("cone");
   });
 });
+
+describe("graph materials", () => {
+  it("validates material refs", () => {
+    const doc = createEffect("m");
+    const e = doc.emitters[0];
+    executeCommand(doc, { op: "setRenderer", emitterId: e.id, renderer: { material: { kind: "graph", shaderId: "p_1" } } as never });
+    expect(validateEffect(doc).filter((i) => i.rendererId)).toEqual([]);
+    executeCommand(doc, { op: "setRenderer", emitterId: e.id, renderer: { sortGroup: "fx" } as never });
+    expect(validateEffect(doc).some((i) => i.level === "warning" && /sort group/.test(i.message))).toBe(true);
+    executeCommand(doc, { op: "setRenderer", emitterId: e.id, renderer: { material: { kind: "graph", shaderId: "" } } as never });
+    expect(validateEffect(doc).some((i) => i.level === "error" && /material/.test(i.message))).toBe(true);
+  });
+});

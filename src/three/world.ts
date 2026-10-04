@@ -30,7 +30,7 @@ interface GpuAttachment {
 
 /** Initial lanes of an effect's shared GPU pools (they double as instances arrive). */
 const GPU_INITIAL_LANES = 4;
-import { createLutTexture, type MaterialOptions, type ParticleMaterialContext } from "./materials/common";
+import { createLutTexture, type MaterialOptions, type ParticleMaterialContext, type ParticleShader } from "./materials/common";
 import { createMeshMaterial } from "./materials/mesh";
 import { createRibbonMaterial } from "./materials/ribbon";
 import { createSpriteMaterial } from "./materials/sprite";
@@ -49,6 +49,12 @@ export interface ParticleWorldOptions {
   loadTexture?: (url: string) => THREE.Texture;
   /** Customise sprite materials (e.g. plug in a tsl-graph shader). Called once per emitter material. */
   materialHook?: (ctx: ParticleMaterialContext) => void;
+  /**
+   * Resolves shader graphs for sprite renderers with `material: { kind: "graph", shaderId }`
+   * (e.g. tsl-graph's createParticleShader). Return undefined for unknown ids: those
+   * sprites keep their own look. After a shader changes, call invalidateShader(id).
+   */
+  shaders?: (shaderId: string) => ParticleShader | undefined;
   /** Named geometries for mesh renderers (also see registerGeometry). Built-in primitives need no registration. */
   geometries?: Record<string, THREE.BufferGeometry>;
   /** Larger frame deltas are clamped to this (seconds). Default 0.1. */
@@ -293,8 +299,34 @@ export class ParticleWorld {
     return () => createBuiltinMesh("box")!;
   }
 
+  #materialOptions(): MaterialOptions {
+    return { time: this.time, loadTexture: this.#loadTexture, hook: this.#opts.materialHook, shader: this.#resolveShader };
+  }
+
+  readonly #missingShaders = new Set<string>();
+  #resolveShader = (id: string): ParticleShader | undefined => {
+    const shader = this.#opts.shaders?.(id);
+    if (!shader && !this.#missingShaders.has(id)) {
+      this.#missingShaders.add(id);
+      this.#warn(`elate-particles: shader graph "${id}" is not available (ParticleWorldOptions.shaders); those sprites keep their own look`);
+    }
+    return shader;
+  };
+
+  /**
+   * Rebuilds the materials of every registered effect that uses shader graph
+   * `id` (after it was edited). Live instances restart, as with register().
+   */
+  invalidateShader(id: string): void {
+    this.#missingShaders.delete(id);
+    for (const reg of [...this.#effects.values()]) {
+      const doc = reg.template.doc;
+      if (doc.emitters.some((e) => e.renderers.some((r) => r.type === "sprite" && r.material?.kind === "graph" && r.material.shaderId === id))) this.register(doc);
+    }
+  }
+
   #createBatch(e: EmitterTemplate, r: DrawRendererDoc, lut: THREE.DataTexture | null): { batch: InstanceBatch; material: THREE.Material } {
-    const opts: MaterialOptions = { time: this.time, loadTexture: this.#loadTexture, hook: this.#opts.materialHook };
+    const opts = this.#materialOptions();
     switch (r.type) {
       case "mesh": {
         const material = createMeshMaterial(e, r, lut, opts);
@@ -313,7 +345,7 @@ export class ParticleWorld {
 
   /** Material only (GPU emitters bring their own geometry). Ribbons never get here: gpuSupport rejects them. */
   #createMaterial(e: EmitterTemplate, r: DrawRendererDoc, lut: THREE.DataTexture | null): THREE.Material {
-    const opts: MaterialOptions = { time: this.time, loadTexture: this.#loadTexture, hook: this.#opts.materialHook };
+    const opts = this.#materialOptions();
     if (r.type === "mesh") return createMeshMaterial(e, r, lut, opts);
     if (r.type === "ribbon") return createRibbonMaterial(e, r, lut, opts);
     return createSpriteMaterial(e, r, lut, opts);
@@ -375,10 +407,10 @@ export class ParticleWorld {
           const base = r.type === "mesh" ? this.#meshGeometry(e, r) : () => new THREE.PlaneGeometry(1, 1);
           if (r.type === "ribbon") {
             // ribbon materials read a pool's buffers: each pool builds its own from this factory
-            const opts: MaterialOptions = { time: this.time, loadTexture: this.#loadTexture, hook: this.#opts.materialHook };
+            const opts = this.#materialOptions();
             return { renderer: r, material: new THREE.MeshBasicNodeMaterial(), base, ribbon: (src) => createRibbonMaterial(e, r, lut, opts, src) };
           }
-          if (r.type === "sprite" && r.sortGroup && r.blend !== "opaque") {
+          if (r.type === "sprite" && r.sortGroup && r.blend !== "opaque" && !r.material) {
             const member = this.#group(r.sortGroup).add(doc.id, e, r);
             if (member !== null) return { renderer: r, material: new THREE.MeshBasicNodeMaterial(), base, group: { name: r.sortGroup, member } };
             this.#warn(`elate-particles: "${doc.name}" / ${e.doc.name} can't join sort group "${r.sortGroup}" (its texture differs from the group's); drawn on its own`);
@@ -392,7 +424,7 @@ export class ParticleWorld {
       }
       reg.gpuDraws.push(null);
       for (const r of drawDocs) {
-        if (r.type === "sprite" && r.sortGroup && r.blend !== "opaque") {
+        if (r.type === "sprite" && r.sortGroup && r.blend !== "opaque" && !r.material) {
           const group = this.#group(r.sortGroup);
           const member = group.add(doc.id, e, r);
           if (member !== null) {
