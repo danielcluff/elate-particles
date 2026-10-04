@@ -79,12 +79,27 @@ executeCommand(fx, {
 });
 ```
 
+Rigs put effects and lights on named points of a model (sockets) and feed effect parameters from signals. They are
+plain JSON (`RigDoc`, keyed by slug) that `RigInstance` plays:
+
+```ts
+import { normalizeRig } from "elate-particles";
+import { RigInstance } from "elate-particles/three";
+
+const rig = new RigInstance(world, normalizeRig(await (await fetch("/ships/striker/ship-fx.json")).json()));
+shipModel.add(rig.object); // sockets follow the model
+
+// every frame, after the ship moved and before world.update:
+rig.setSignals({ throttle: input.forward ? 1 : 0.2 }).update(dt);
+// later: rig.dispose() lets live particles finish (a destroyed ship's trail fades)
+```
+
 ## Entry points
 
 | Import | Runs in | What |
 | --- | --- | --- |
-| `elate-particles` | anywhere | Types, values, module registry, doc helpers, commands, CPU simulator. No three, no DOM |
-| `elate-particles/three` | browser | `ParticleWorld`, `WorkerParticleWorld`, handles, materials, batches, GPU emitters |
+| `elate-particles` | anywhere | Types, values, module registry, doc helpers, commands, CPU simulator, rig documents. No three, no DOM |
+| `elate-particles/three` | browser | `ParticleWorld`, `WorkerParticleWorld`, `RigInstance`, handles, materials, batches, GPU emitters |
 | `elate-particles/worker` | worker | `startParticleWorker()` for the worker side of `WorkerParticleWorld` |
 
 `three >= 0.184` is a peer dependency. The package ships TypeScript source.

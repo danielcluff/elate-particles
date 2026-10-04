@@ -814,9 +814,13 @@ original monorepo sketch in a few ways:
   `content-src/`, each source file beside its production-ready runtime file (`effects/<id>.fx.json`;
   `effects/shaders/<id>.graph.json` → generated `<id>.ts`). Redshift's build step moves runtime files into `content/`.
 - **One MCP endpoint** with `fx_*` and `shader_*` tools, through the editors' `mcp: "parent"` registration.
-- **Next:** ship and weapon FX setups (attachment points on the model, effects and lights bound to game values),
-  shader targets that match the game's material contracts (projectile, outfit, shield), shields that react where they
-  are hit, and event timelines played by a small player in this runtime.
+- **Rigs** (in this runtime, `src/rig` and `src/three/rig.ts`): a `RigDoc` names sockets on a model, attaches effects
+  and point lights to them, and binds effect parameters to signals (a signal name, or a constant). `RigInstance` plays
+  it: sockets are child objects of the model, effects follow them every `update()` (the simulation derives inherited
+  velocity from the movement), and editing the doc (`setDoc`) keeps running effects unless their effect or socket
+  changed. redshift-fx edits rigs per ship and weapon (`ship-fx.json`, `weapon-fx.json`).
+- **Next:** shader targets that match the game's material contracts (projectile, outfit, shield), shields that react
+  where they are hit, and event timelines played by a small player in this runtime.
 
 See redshift-fx's `docs/DESIGN.md` for the plan.
 
@@ -831,7 +835,7 @@ See redshift-fx's `docs/DESIGN.md` for the plan.
 | 1.2 ✅ | Runtime gaps | mesh + ribbon renderers, per-particle trails, multiple renderers per emitter, sorting + sort groups, soft particles + camera fade, budget/LOD/culling, worker simulation |
 | **2** ✅ | Effect editor | Stack UI, value widgets, timeline, viewport, store and undo, MCP + AI chat (elate-particles-editor); `particle` graph kind in tsl-graph and graph materials for sprites |
 | 2.1 ✅ | GPU backend | TSL compute implementations for built-in modules, `sim: "gpu"` per emitter, CPU fallback |
-| **3** | FX studio | redshift-fx: studio shell over Redshift content ✅; ship/weapon FX setups, shader targets, reactive shields, event timelines |
+| **3** | FX studio | redshift-fx: studio shell over Redshift content ✅, rigs for ships and weapons ✅; shader targets, reactive shields, event timelines |
 
 ### Decisions to confirm
 

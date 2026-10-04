@@ -17,4 +17,5 @@ export { GpuEmitter, GpuPool, GpuPoolSet, GPU_BOUNDS_INTERVAL, GPU_SHRINK_AFTER,
 export { GpuSorter } from "./gpu/sort";
 export { registerGpuModule, getGpuModule, type GpuModuleImpl } from "./gpu/modules";
 export { GpuBuildContext, LaneLayout, LaneValues, LANE, type GpuParticle, type FrameInfo } from "./gpu/context";
+export { RigInstance, type RigInstanceOptions } from "./rig";
 export { WorkerParticleWorld, WorkerParticleEffect, type ParticlePort, type WorkerParticleWorldOptions } from "./worker-world";
