@@ -3,27 +3,23 @@
 How elate-particles is wired into `redshift/gameClient`. All of the steps below are applied in Redshift. Later
 sections cover features Redshift doesn't use yet.
 
-## 1. Dependency and build config
+## 1. Submodule, dependency and build config
 
-`gameClient/package.json` links this checkout (installed with pnpm, which owns `gameClient/node_modules`):
+The package is a git submodule at `gameClient/vendor/elate-particles`, and `gameClient/package.json` links it
+(installed with pnpm, which owns `gameClient/node_modules`):
 
 ```json
-"elate-particles": "link:../../particle-system"
+"elate-particles": "link:./vendor/elate-particles"
 ```
 
-The package ships TypeScript source, which Vite compiles directly. Two config changes make the link work, in both
-`gameClient/vite.config.ts` and `webClient/astro.config.mts` (the website embeds the game at `/play` and `/dev/arena`):
+After cloning Redshift, run `git submodule update --init` before installing. To move Redshift to a newer package
+version, check out the commit in the submodule and commit the new pointer in Redshift.
 
-- `resolve.dedupe` includes `"three"`. A linked package would otherwise resolve three from its own `node_modules`, and
-  two copies of three break `NodeMaterial`/`instanceof` checks.
-- `server.fs.allow` includes the package's real path, since it lives outside the Redshift repo.
-
-The link means a Redshift build needs this repo checked out next to `redshift/`. A git or registry dependency would
-remove that requirement once the package is published.
-
-Editor-only caveat: TypeScript follows the symlink and reads three's types from this repo's `@types/three`, which is a
-different copy from Redshift's. Passing the renderer, camera or `world.object` across the boundary can therefore show
-type errors in the editor. Vite's dedupe means there is still only one three at runtime.
+The package ships TypeScript source, which Vite compiles directly. It has no `node_modules` of its own inside
+Redshift, so its `three` import resolves upward to `gameClient/node_modules`. Both `gameClient/vite.config.ts` and
+`webClient/astro.config.mts` also list `"three"` in `resolve.dedupe`. That keeps one three (two copies break
+`NodeMaterial`/`instanceof` checks) even if someone installs the package's dev dependencies inside the submodule to
+work on it. The game client's Vitest config excludes `vendor/**`, since the package runs its own tests.
 
 ## 2. One ParticleWorld per game
 
@@ -48,7 +44,8 @@ effect, drop the file in and add its id to `PARTICLE_EFFECTS`.
 
 `engine/render/vfx/effect-spawner.ts` keeps its API (`explosion(position, scale)`, `shieldHit(position)`) plus a new
 `hullHit(position)`, and spawns fire-and-forget particle effects instead of an entity with a sphere mesh per hit.
-`ProjectileComponent` uses `hullHit` for unshielded hull impacts. Each emitter of an effect is one draw call no matter
+`ProjectileComponent` uses `hullHit` for unshielded hull impacts. Kills explode at the destroyed entity's center;
+other effects play at the impact point. Each emitter of an effect is one draw call no matter
 how many instances are alive, so a busy fight costs the same draw calls as a single hit. The size multipliers at the top
 of the file account for the gameplay camera being further out than the playground's.
 
@@ -66,8 +63,8 @@ inherited from `ShipEngineComponent`. The `drive` hook does two things:
 
 Remote ships have no input component, so they idle.
 
-`ParticleEmitterComponent` and `engine/particles/particle-system.ts` (the old particle system) are still registered
-but unused by gameplay; `EffectComponent` is now unused too. They can be deleted when convenient.
+The old particle system (`ParticleEmitterComponent`, `engine/particles/particle-system.ts`) and the
+entity-per-effect `EffectComponent` have been removed.
 
 ## One-shot effects elsewhere
 

@@ -7,7 +7,9 @@ A data-driven particle system for three.js (WebGPU/TSL). It has three consumers:
 3. **An FX studio** that unifies the particle tool and tsl-graph into a small effects "engine" (Phase 3, separate
    repo).
 
-Phase 1, the runtime library, is implemented in this repo. Phases 2 and 3 are designed below.
+Phase 1, the runtime library, is implemented in this repo. Phase 2's editor UI is implemented in
+[elate-particles-editor](https://github.com/danielcluff/elate-particles-editor), which uses this repo as a git
+submodule; its MCP server and AI chat are still to come. Phase 3 is designed below.
 
 ---
 
@@ -59,7 +61,7 @@ elate-particles/three       (three/webgpu + three/tsl)
 └── three/     ParticleWorld (registry, pooling, update), SpriteBatch (instanced
                draw per emitter), TSL sprite material, LUT textures
 
-Phase 2 adds: elate-particles/editor (Solid), elate-particles/server (MCP + bridge + AI chat)
+Phase 2 adds, in elate-particles-editor (this repo as a submodule): its /editor (Solid) and /server (MCP + bridge + AI chat)
 ```
 
 Every edit goes through `executeCommand(doc, command)`. That covers the editor UI, MCP tools, the AI chat agent, and
@@ -658,8 +660,8 @@ multiple renderers, GPU and worker simulation) are closed, and GPU emitters now 
 curves over age, batching across instances, ribbons (sorted too), sort groups, frustum culling and pools that shrink
 after a peak.
 Every renderer feature now runs on the GPU too, and culled GPU instances cost neither simulation (with
-`pauseOffscreen`) nor vertex work. Particles can light the scene (`light` renderers). Candidates next: the effect
-editor (Phase 2).
+`pauseOffscreen`) nor vertex work. Particles can light the scene (`light` renderers). Candidates next: the
+editor's MCP server and AI chat (Phase 2).
 
 ### three.js and framework compatibility
 
@@ -672,7 +674,7 @@ editor (Phase 2).
 
 ## 3. Redshift integration (Phase 1)
 
-Applied in Redshift (gameClient links this repo). See [`integrations/redshift/README.md`](../integrations/redshift/README.md). In summary:
+Applied in Redshift (a git submodule at `gameClient/vendor/elate-particles`). See [`integrations/redshift/README.md`](../integrations/redshift/README.md). In summary:
 
 - One `ParticleWorld` owned by `Game.ts`, updated right after `entityManager.lateStep`.
 - `ParticleEffectComponent` for effects attached to entities (thrusters, shield glows). It follows an entity-space
@@ -691,8 +693,8 @@ Mirror tsl-graph so Phase 3 is a merge, not a rewrite:
 
 | Import | What |
 | --- | --- |
-| `elate-particles/editor` | `<EffectEditor host projectId />` (Solid) and `mountEffectEditor(el, props)` for any framework |
-| `elate-particles/server` | `createEffectServer({ store, mcp: "graph" \| "parent", ai })`: MCP endpoint, WebSocket bridge to open editors, AI chat loop |
+| `elate-particles-editor/editor` | `<EffectEditor host projectId />` (Solid) and `mountEffectEditor(el, props)` for any framework |
+| `elate-particles-editor/server` | `createEffectServer({ store, mcp: "graph" \| "parent", ai })`: MCP endpoint, WebSocket bridge to open editors, AI chat loop |
 | `EffectHost` | Same contract as `GraphHost`: `projects.load/save/create`, `openProject`, `exit`, `projectUrl`, `server`, `mcp`, `ai.getApiKey` |
 
 Tech: Solid 2, Tailwind v4, Geist/Geist Mono, lucide icons, and **tsl-graph's UI kit and tokens** (`tsl-graph/ui`,
@@ -820,13 +822,13 @@ on it. That's the only change Phase 3 asks of tsl-graph.
 | **1** ✅ | Runtime library | Core, 20 modules, CPU sim, batched TSL sprite/mesh/ribbon renderers, Redshift adapter, examples, tests, playground |
 | 1.1 | Redshift adoption | Wire `ParticleWorld` into `Game.ts`; thrusters on ships; replace `EffectSpawner`; delete the old particle system |
 | 1.2 ✅ | Runtime gaps | mesh + ribbon renderers, per-particle trails, multiple renderers per emitter, sorting + sort groups, soft particles + camera fade, budget/LOD/culling, worker simulation |
-| **2** | Effect editor | Stack UI, value widgets, timeline, viewport, store and undo, MCP + AI chat, `particle` graph kind in tsl-graph |
+| **2** | Effect editor | Stack UI, value widgets, timeline, viewport, store and undo ✅ (elate-particles-editor); MCP + AI chat, `particle` graph kind in tsl-graph |
 | 2.1 ✅ | GPU backend | TSL compute implementations for built-in modules, `sim: "gpu"` per emitter, CPU fallback |
 | **3** | FX studio | Monorepo, `studio-kit` extraction, asset model, prefabs, unified MCP, export bundle |
 
 ### Decisions to confirm
 
-1. **Package name.** `elate-particles` (renamed from `tsl-particles`, chosen to pair with `tsl-graph`). Effect files use `"format": "elate-particles"` (`EFFECT_FORMAT`); files with the old `"tsl-particles"` still load.
+1. **Package name.** `elate-particles` (chosen to pair with `tsl-graph`). Effect files use `"format": "elate-particles"` (`EFFECT_FORMAT`).
 2. **Stack UI over a graph** for particle behaviour, with tsl-graph for materials and later custom modules (section 1).
 3. **CPU-first simulation**, with `sim: "gpu"` per emitter for huge effects (done). Redshift's effects are hundreds to tens of thousands of
    particles, where CPU simulation is cheaper overall and supports sub-emitters and gameplay hooks.

@@ -115,8 +115,7 @@ function normalizeRenderers(raw: Record<string, unknown>): RendererDoc[] {
  */
 export function normalizeEffect(json: unknown): EffectDoc {
   if (!isObj(json)) throw new Error("Effect must be a JSON object");
-  // "tsl-particles" is the format name before the rename; those files still load
-  if (json.format !== undefined && json.format !== EFFECT_FORMAT && json.format !== "tsl-particles") throw new Error(`Not a ${EFFECT_FORMAT} document (format "${String(json.format)}")`);
+  if (json.format !== undefined && json.format !== EFFECT_FORMAT) throw new Error(`Not a ${EFFECT_FORMAT} document (format "${String(json.format)}")`);
   if (!Array.isArray(json.emitters)) throw new Error("Effect has no emitters array");
   const emitters = json.emitters.filter(isObj).map((raw): EmitterDoc => {
     const def = createEmitter(String(raw.name ?? "Emitter"), "empty");
