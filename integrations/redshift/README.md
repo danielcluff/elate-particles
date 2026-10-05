@@ -17,54 +17,57 @@ version, check out the commit in the submodule and commit the new pointer in Red
 
 The package ships TypeScript source, which Vite compiles directly. It has no `node_modules` of its own inside
 Redshift, so its `three` import resolves upward to `gameClient/node_modules`. Both `gameClient/vite.config.ts` and
-`webClient/astro.config.mts` also list `"three"` in `resolve.dedupe`. That keeps one three (two copies break
+`webClient/astro.config.mts` also list `"three"` in `resolve.dedupe` (the game client also dedupes `elate-particles`,
+for generated modules in `content/`, which has no `node_modules`). That keeps one three (two copies break
 `NodeMaterial`/`instanceof` checks) even if someone installs the package's dev dependencies inside the submodule to
 work on it. The game client's Vitest config excludes `vendor/**`, since the package runs its own tests.
 
 ## 2. One ParticleWorld per game
 
-`Game.ts` creates the world in `#setupParticles_()`, before the factories that use it:
+`Game.ts` creates the world in `#setupParticles_()`, before the factories that use it. Content comes from
+`engine/loading/fx-catalog.ts`, which finds files by location with `import.meta.glob` (nothing is listed in code):
 
 ```ts
-const particles = new ParticleWorld({ renderer: this.Renderer, budget: { maxParticles: 40_000 }, lights: { max: 8 } });
-this.Scene.add(particles.object);
-for (const id of PARTICLE_EFFECTS) particles.register(normalizeEffect(await (await fetch(`/content/effects/${id}.fx.json`)).json(), { id }));
+const catalog = new FxCatalog();
+const [docs, particleShaders, shields] = await Promise.all([catalog.loadEffects(), catalog.loadParticleShaders(), catalog.loadShieldStyles()]);
+const particles = new ParticleWorld({ renderer: this.Renderer, budget: { maxParticles: 40_000 }, lights: { max: 8 }, shaders: (id) => particleShaders.get(id) });
+for (const doc of docs) particles.register(doc); // normalizeEffect(json, { id: <file name> })
 ```
 
-It updates in `onStep` right after `entityManager.lateStep`, so effects see final entity transforms, and is disposed in
-`destroy()`. Registering compiles each effect and builds its GPU materials once; spawning afterwards is
-allocation-light.
+It updates in `onStep` right after `entityManager.lateStep` (and the rig system), so effects see final entity
+transforms, and is disposed in `destroy()`. Registering compiles each effect and builds its GPU materials once;
+spawning afterwards is allocation-light.
 
-Effect files live in `redshift/content/effects/`: `explosion`, `shield-hit`, `hull-hit` and `thruster`. They were
-derived from this repo's examples for space: no gravity or ground bounce (y = 0 is the ships' plane), no rising
-smoke, and LOD/cull distances for a camera ~100 units out. Edit them directly (or in the Phase 2 editor). To add an
-effect, drop the file in and add its id to `PARTICLE_EFFECTS`.
+Effects live in `redshift/content/effects/<slug>.fx.json` (made in redshift-fx, which writes to `content-src/`; the
+content build moves them). Particle shaders are `content/effects/shaders/<slug>.ts`.
 
-## 3. Impacts: `EffectSpawner`
+## 3. Rigs: thrusters, impacts and explosions
 
-`engine/render/vfx/effect-spawner.ts` keeps its API (`explosion(position, scale)`, `shieldHit(position)`) plus a new
-`hullHit(position)`, and spawns fire-and-forget particle effects instead of an entity with a sphere mesh per hit.
-`ProjectileComponent` uses `hullHit` for unshielded hull impacts. Kills explode at the destroyed entity's center;
-other effects play at the impact point. Each emitter of an effect is one draw call no matter
-how many instances are alive, so a busy fight costs the same draw calls as a single hit. The size multipliers at the top
-of the file account for the gameplay camera being further out than the playground's.
+Ships and projectiles play rigs (`RigInstance`): `content/ships/<slug>/ship-fx.json` and
+`content/weapons/<slug>/weapon-fx.json`. `RigComponent` (`engine/entityManagement/components/rig.ts`) puts one on an
+entity's model and updates it in `onLateStep`; `RigSystem` (`engine/render/fx/rig-system.ts`) creates rigs and lets
+the events a removed entity was playing finish where it was.
 
-## 4. Thrusters: `ParticleEffectComponent`
+- **Ships:** `ShipRigDriver` feeds the signals (throttle, reverse, strafe, turn, brake, speed, shield, hull) and
+  triggers `shield-hit`, `hit` (with where the shot landed, raycast onto the hull), `shield-break`, `shield-restore`
+  and `destroyed` from the ship's components. A ship without a rig gets a stock one: the `thruster` exhaust at the
+  hitbox's stern and the `hull-hit`, `shield-hit` and `explosion` effects (this replaced `EffectSpawner` and the
+  hard-coded thruster).
+- **Projectiles:** the weapon's rig rides the projectile (`speed`, `life`) and plays `fire`, `impact` and `expire`.
+- **Cues:** shake tracks shake the camera and sound tracks play `content/sounds/<slug>.*` through Howler
+  (`engine/render/fx/cues.ts`).
 
-`particle-effect.ts` (copied to `engine/entityManagement/components/`, registered in `register.ts`) attaches an
-effect to an entity. It follows the entity in `onLateStep`, can inherit velocity from another component, and has a
-`drive(effect, entity)` hook for per-frame parameters. On dispose it stops spawning and lets live particles fade
-(`lingerOnDispose`, default true), so a destroyed ship's trail doesn't pop out of existence.
+`gameClient/engine/render/fx/README.md` has the details.
 
-`ShipFactory` gives every ship a thruster at its stern (the hitbox's rearmost point; ships face +Z). Velocity is
-inherited from `ShipEngineComponent`. The `drive` hook does two things:
-- **Throttle:** `throttle` is 1 while `InputControllerComponent` reports forward thrust, otherwise 0.15 (idle).
-- **Docking:** the exhaust stops while the ship model is hidden.
+## 4. Shields: `DepthShell` and `HitBuffer`
 
-Remote ships have no input component, so they idle.
+`ShieldVisualComponent` draws each shield as a `DepthShell` (all shields share the context's `DepthShellCapture`) and
+keeps a `HitBuffer` of the last hits in the ship's space, fed from `ShieldComponent.lastHit`. Styles
+(`content/shields/<slug>/shield-shader.ts`, or built in) take redshift-fx's shield inputs and return
+`{ color, opacity }`.
 
-The old particle system (`ParticleEmitterComponent`, `engine/particles/particle-system.ts`) and the
-entity-per-effect `EffectComponent` have been removed.
+`particle-effect.ts` (an effect that follows an entity) is still registered in the game for one-off uses; rigs cover
+ships and projectiles.
 
 ## One-shot effects elsewhere
 

@@ -91,6 +91,9 @@ shipModel.add(rig.object); // sockets follow the model
 
 // every frame, after the ship moved and before world.update:
 rig.setSignals({ throttle: input.forward ? 1 : 0.2 }).update(dt);
+// events play the rig's timelines (effects, light flashes; shake and sound cues go to onCue):
+rig.trigger("shield-hit", { position: impact, normal, strength: damage / maxShield });
+hullMaterial.emissiveIntensity = rig.channel("hull-flash"); // channel tracks: values over time
 // later: rig.dispose() lets live particles finish (a destroyed ship's trail fades)
 ```
 

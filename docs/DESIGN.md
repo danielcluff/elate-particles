@@ -674,7 +674,7 @@ from a tsl-graph particle shader (`material: { kind: "graph" }`). Candidates nex
 
 ### three.js and framework compatibility
 
-- `three >= 0.184` (Redshift is 0.184, tsl-graph is 0.186). Only stable TSL is used: `attribute`, `vertexNode`,
+- `three >= 0.184` (Redshift and tsl-graph are on 0.186). Only stable TSL is used: `attribute`, `vertexNode`,
   `select`, `varying`, `texture`, instanced interleaved buffers.
 - The core has no dependencies. The editor will use Solid 2 like tsl-graph. Redshift's Solid 1.9 doesn't matter
   because the editor isn't embedded in the game.
@@ -828,7 +828,12 @@ original monorepo sketch in a few ways:
   the studio draw shields with the same code. `DepthShellCapture` (one per camera) renders expanded (1.05 around the
   model origin), model-only proxies into a depth/normal/owner target; each `DepthShell` is a full-screen pass that
   reconstructs its model's surface, keeps only pixels its model owns, and depth-tests against the scene.
-- **Next:** event timelines played by a small player in this runtime.
+- **Event timelines** (in the rig format and `RigInstance`): `events: { <event>: { tracks: { <track>: … } } }`, each
+  track starting `at` seconds after the event: `effect` (at a socket, or at the event's position with +Z along its
+  normal; optionally following the socket), `light` (a flash shaped by a curve), `shake` and `sound` (cues for the host
+  through `onCue`, since the rig owns neither camera nor audio) and `channel` (a named value over time the host reads
+  with `rig.channel(name)`, e.g. for a hull flash). `rig.trigger(event, { position, normal, strength })` plays a
+  snapshot of the timeline; strength scales lights, shakes, sounds and channels, and effect params can bind it.
 
 See redshift-fx's `docs/DESIGN.md` for the plan.
 
@@ -843,7 +848,7 @@ See redshift-fx's `docs/DESIGN.md` for the plan.
 | 1.2 ✅ | Runtime gaps | mesh + ribbon renderers, per-particle trails, multiple renderers per emitter, sorting + sort groups, soft particles + camera fade, budget/LOD/culling, worker simulation |
 | **2** ✅ | Effect editor | Stack UI, value widgets, timeline, viewport, store and undo, MCP + AI chat (elate-particles-editor); `particle` graph kind in tsl-graph and graph materials for sprites |
 | 2.1 ✅ | GPU backend | TSL compute implementations for built-in modules, `sim: "gpu"` per emitter, CPU fallback |
-| **3** | FX studio | redshift-fx: studio shell over Redshift content ✅, rigs for ships and weapons ✅, shader targets ✅, reactive shields ✅; event timelines |
+| **3** | FX studio | redshift-fx: studio shell over Redshift content ✅, rigs for ships and weapons ✅, shader targets ✅, reactive shields ✅, event timelines ✅ |
 
 ### Decisions to confirm
 

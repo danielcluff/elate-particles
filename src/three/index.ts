@@ -17,7 +17,7 @@ export { GpuEmitter, GpuPool, GpuPoolSet, GPU_BOUNDS_INTERVAL, GPU_SHRINK_AFTER,
 export { GpuSorter } from "./gpu/sort";
 export { registerGpuModule, getGpuModule, type GpuModuleImpl } from "./gpu/modules";
 export { GpuBuildContext, LaneLayout, LaneValues, LANE, type GpuParticle, type FrameInfo } from "./gpu/context";
-export { RigInstance, type RigInstanceOptions } from "./rig";
+export { RigInstance, type RigCue, type RigEventContext, type RigEventHandle, type RigInstanceOptions } from "./rig";
 export { HitBuffer, type HitBufferOptions, type NearestHit } from "./hits";
 export { DepthShell, DepthShellCapture, type DepthShellOptions, type ShellShader, type ShellSurface } from "./depth-shell";
 export { WorkerParticleWorld, WorkerParticleEffect, type ParticlePort, type WorkerParticleWorldOptions } from "./worker-world";

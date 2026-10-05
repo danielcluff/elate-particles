@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three/webgpu";
-import { createEffect, createRig, normalizeRig, rigSignals, serializeRig, validateRig, type RigDoc } from "../src";
+import { createEffect, createRig, eventDuration, normalizeRig, rigSignals, serializeRig, validateRig, type RigDoc } from "../src";
 import { ParticleWorld, RigInstance } from "../src/three";
 
 function thruster() {
@@ -119,5 +119,89 @@ describe("RigInstance", () => {
     r.dispose();
     expect(model.children).toHaveLength(0);
     expect(h.autoRelease).toBe(true);
+  });
+});
+
+describe("rig events", () => {
+  function eventRig(): RigDoc {
+    return normalizeRig({
+      sockets: { "engine-left": { position: [-1, 0, -2] }, nose: { position: [0, 0, 3] } },
+      events: {
+        "shield-hit": {
+          tracks: {
+            sparks: { type: "effect", at: 0, effect: "thruster", params: { throttle: "strength" } },
+            flash: { type: "light", at: 0, duration: 0.5, color: "#88ccff", intensity: 10, range: 8 },
+            glow: { type: "channel", at: 0.1, duration: 0.4, channel: "shield-flash", value: 2 },
+            thump: { type: "sound", at: 0, sound: "shield-thump", volume: 0.8 },
+            shake: { type: "shake", at: 0.2, duration: 0.3, amplitude: 0.5 },
+          },
+        },
+        destroyed: { tracks: { boom: { type: "effect", at: 0.5, effect: "thruster", socket: "nose", follow: true } } },
+      },
+    });
+  }
+
+  it("normalizes tracks with defaults left out and reports bad ones", () => {
+    const r = eventRig();
+    expect(r.events["shield-hit"].tracks.thump).toEqual({ type: "sound", at: 0, sound: "shield-thump", volume: 0.8 });
+    expect(r.events.destroyed.tracks.boom).toEqual({ type: "effect", at: 0.5, effect: "thruster", socket: "nose", follow: true });
+    expect(eventDuration(r.events["shield-hit"])).toBeCloseTo(0.5);
+    expect(validateRig(r, { effects: ["thruster"] })).toEqual([]);
+
+    const bad = normalizeRig({ events: { boom: { tracks: { a: { type: "laser", at: 0 }, b: { type: "light", at: 0, duration: 0, socket: "tail", color: "red" } } } } });
+    expect(validateRig(bad).map((i) => i.message)).toEqual([
+      'Track "boom/a" has unknown type "laser" (types: effect, light, shake, sound, channel)',
+      'Track "boom/b": duration must be > 0',
+      'Track "boom/b" uses unknown socket "tail"',
+      'Track "boom/b": color must be #rrggbb',
+    ]);
+  });
+
+  it("plays a timeline: effects at the event, lights and channels over time, cues for the host", () => {
+    const world = new ParticleWorld();
+    world.register(thruster());
+    const model = new THREE.Group();
+    model.position.set(100, 0, 0);
+    const cues: string[] = [];
+    const r = new RigInstance(world, eventRig(), { onCue: (c) => cues.push(c.type === "sound" ? `sound ${c.sound} ${c.volume}` : `shake ${c.amplitude}`) });
+    model.add(r.object);
+    r.update(0);
+
+    const before = world.stats.instances;
+    const handle = r.trigger("shield-hit", { position: { x: 101, y: 2, z: 0 }, normal: { x: 0, y: 1, z: 0 }, strength: 0.5 })!;
+    // tracks at 0 happen at once
+    expect(world.stats.instances).toBe(before + 1);
+    expect(cues).toEqual(["sound shield-thump 0.4"]);
+    expect(r.activeEvents).toEqual(["shield-hit"]);
+
+    r.update(0.15);
+    const light = r.object.children.find((c) => (c as THREE.PointLight).isPointLight) as THREE.PointLight;
+    expect(light.position.toArray().map((v) => Math.round(v * 100) / 100)).toEqual([1, 2, 0]);
+    // fades out over its 0.5 s: 10 × 0.5 strength × (1 - 0.3)
+    expect(light.intensity).toBeCloseTo(3.5);
+    expect(r.channel("shield-flash")).toBeCloseTo(2 * 0.5 * (1 - 0.05 / 0.4));
+    r.update(0.1);
+    expect(cues).toEqual(["sound shield-thump 0.4", "shake 0.25"]);
+
+    r.update(0.3);
+    expect(handle.done).toBe(true);
+    expect(r.channel("shield-flash")).toBe(0);
+    expect(r.object.children.some((c) => (c as THREE.PointLight).isPointLight)).toBe(false);
+    expect(r.trigger("nope")).toBeNull();
+  });
+
+  it("an effect can follow its socket until the timeline ends", () => {
+    const world = new ParticleWorld();
+    world.register(thruster());
+    const model = new THREE.Group();
+    const r = new RigInstance(world, eventRig());
+    model.add(r.object);
+    r.trigger("destroyed");
+    r.update(0.5);
+    const effect = world.stats.instances;
+    expect(effect).toBeGreaterThan(0);
+    model.position.set(0, 0, 10);
+    r.update(0.01);
+    expect(r.activeEvents).toEqual([]);
   });
 });
