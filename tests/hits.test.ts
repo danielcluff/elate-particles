@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { positionLocal } from "three/tsl";
+import { Fn, float, positionLocal } from "three/tsl";
 import { HitBuffer } from "../src/three";
 
 describe("HitBuffer", () => {
@@ -41,5 +41,18 @@ describe("HitBuffer", () => {
     expect(hits.now.value).toBe(42);
     hits.update();
     expect(hits.time).toBeGreaterThan(0);
+  });
+
+  it("builds a TSL loop over every live hit", () => {
+    const hits = new HitBuffer();
+    const total = Fn(() => {
+      const sum = float(0).toVar();
+      hits.each(positionLocal, (hit) => {
+        for (const n of [hit.distance, hit.age, hit.strength]) expect(n?.isNode).toBe(true);
+        sum.addAssign(hit.strength);
+      });
+      return sum;
+    })();
+    expect(total?.isNode).toBe(true);
   });
 });

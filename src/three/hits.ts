@@ -2,8 +2,11 @@
 // they were struck: ripples, hot spots, scorch marks.
 //
 //   const hits = new HitBuffer({ max: 8, lifetime: 1.5 });
-//   const near = hits.nearest(positionLocal);   // TSL: distance, age, strength
-//   material.opacityNode = rippleFrom(near.distance, near.age);
+//   // TSL, inside a Fn: every live hit's ripple, added up
+//   const opacity = float(0).toVar();
+//   hits.each(positionLocal, (hit) => opacity.addAssign(rippleFrom(hit.distance, hit.age).mul(hit.strength)));
+//   // or only the nearest hit (cheaper, but ripples from different hits cut each other off)
+//   const near = hits.nearest(positionLocal);
 //   // every frame:
 //   hits.update();
 //   // on impact, in the same space as the position node (e.g. the model's):
@@ -37,6 +40,16 @@ export interface NearestHit {
   /** Seconds since that hit (very large when there is none). */
   age: Node;
   /** That hit's strength (0 when there is none). */
+  strength: Node;
+}
+
+/** One live hit, as `each` hands it to its body (TSL nodes). */
+export interface LiveHit {
+  /** Distance from the position to the hit. */
+  distance: Node;
+  /** Seconds since the hit. */
+  age: Node;
+  /** The hit's strength. */
   strength: Node;
 }
 
@@ -106,7 +119,28 @@ export class HitBuffer {
       .map(({ empty: _empty, ...h }) => h);
   }
 
-  /** TSL: the live hit nearest to `position` (a vec3 node in the same space as the hits). */
+  /**
+   * TSL, inside a Fn: run `body` once for every live hit (`position` is a vec3
+   * node in the same space as the hits). The body is emitted once, inside a
+   * shader loop over the slots, and skipped for empty or expired ones; it
+   * typically adds to variables declared before the call. Unlike `nearest`,
+   * every hit's effect shows where they overlap.
+   */
+  each(position: Node, body: (hit: LiveHit) => void): void {
+    const now = this.now;
+    Loop(this.max, ({ i }: { i: Node }) => {
+      const hit = this.hits.element(i);
+      If(hit.w.greaterThanEqual(0).and(now.sub(hit.w).lessThan(this.lifetime)), () => {
+        body({ distance: position.distance(hit.xyz), age: now.sub(hit.w), strength: this.strengths.element(i) });
+      });
+    });
+  }
+
+  /**
+   * TSL: the live hit nearest to `position` (a vec3 node in the same space as
+   * the hits). Effects driven by it show one hit per point, so the regions of
+   * two hits meet at a seam; use `each` to let them overlap.
+   */
   nearest(position: Node): NearestHit {
     const now = this.now;
     const result = Fn(() => {
