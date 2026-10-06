@@ -61,10 +61,10 @@ the events a removed entity was playing finish where it was.
 
 ## 4. Shields: `DepthShell` and `HitBuffer`
 
-`ShieldVisualComponent` draws each shield as a `DepthShell` (all shields share the context's `DepthShellCapture`) and
-keeps a `HitBuffer` of the last hits in the ship's space, fed from `ShieldComponent.lastHit`. Styles
-(`content/shields/<slug>/shield-shader.ts`, or built in) take redshift-fx's shield inputs and return
-`{ color, opacity }`.
+Every shield is drawn by the game's `ShieldShell`, independent of its style: a `DepthShell` (all shields share the
+context's `DepthShellCapture`) and a `HitBuffer` of the last hits in the ship's space, fed from
+`ShieldComponent.lastHit`. Styles are content: `content/effects/shields/<slug>/{passive,hit,destroy}.ts`, layers made
+in redshift-fx that take its shield inputs and return `{ color, opacity }`; the shell adds them up.
 
 `particle-effect.ts` (an effect that follows an entity) is still registered in the game for one-off uses; rigs cover
 ships and projectiles.
