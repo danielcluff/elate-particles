@@ -14,7 +14,7 @@
         "src"
     ],
     "scripts": {
-        "dev": "vite playground",
+        "dev": "vite playground --port 5110 --strictPort",
         "typecheck": "tsc --noEmit",
         "test": "vitest run"
     },
