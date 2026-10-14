@@ -16,7 +16,7 @@
 //   // every frame, after the model moved:
 //   shell.update();
 import * as THREE from "three/webgpu";
-import { cameraProjectionMatrixInverse, cameraWorldMatrix, float, getViewPosition, normalView, pass, positionGeometry, screenUV, uniform, vec3, vec4 } from "three/tsl";
+import { cameraProjectionMatrix, cameraProjectionMatrixInverse, cameraWorldMatrix, Fn, If, float, getViewPosition, normalView, pass, positionGeometry, screenUV, textureSize, uniform, vec2, vec3, vec4 } from "three/tsl";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Node = any;
@@ -35,6 +35,8 @@ export interface ShellSurface {
   normal: Node;
   /** 0 facing the camera, 1 at grazing angles. */
   fresnel: Node;
+  /** Normal-independent silhouette rim: 1 at the boundary, fading inward over a projected model-space width. */
+  silhouetteEdge: Node;
 }
 
 /** Linear RGB and opacity; null takes a default (white, opaque). */
@@ -140,6 +142,8 @@ export interface DepthShellOptions {
   shader: ShellShader;
   /** Expansion around the model's origin. Default 1.05. */
   scale?: number;
+  /** Silhouette fade width in model units; follows distance, zoom and model scale. Default 0.25. */
+  silhouetteWidth?: number;
   /** Draw order of the full-screen pass. Default 10 (after the scene). */
   renderOrder?: number;
 }
@@ -152,8 +156,13 @@ export class DepthShell {
   #modelInverse = uniform(new THREE.Matrix4());
   #surface: ShellSurface;
   #visible = true;
+  #silhouetteWidth: number;
+  #worldRimWidth = uniform(0.25);
 
   constructor(capture: DepthShellCapture, model: THREE.Object3D, opts: DepthShellOptions) {
+    this.#silhouetteWidth = opts.silhouetteWidth ?? 0.25;
+    if (!Number.isFinite(this.#silhouetteWidth) || this.#silhouetteWidth <= 0)
+      throw new RangeError("Silhouette width must be finite and positive");
     this.#model = model;
     this.#capture = capture.register(model, { scale: opts.scale });
     const depth = this.#capture.depth.sample(screenUV).r;
@@ -162,6 +171,40 @@ export class DepthShell {
     const viewPosition = getViewPosition(screenUV, depth, cameraProjectionMatrixInverse);
     const worldPosition = cameraWorldMatrix.mul(vec4(viewPosition, 1)).xyz;
     this.#surface = {
+      // Built lazily by TSL: styles that use only Fresnel pay no sampling cost.
+      silhouetteEdge: Fn(() => {
+        const edge = float(0).toVar();
+        // Restrict the texture probes to visible pixels of this captured model.
+        If(depth.lessThan(1).and(normalOwner.a.equal(this.#capture.id)), () => {
+          const size = vec2(textureSize(this.#capture.normalOwner) as Node);
+          const texel = vec2(1).div(size);
+          // Project a model-space width into capture pixels. clip.w accounts for
+          // perspective distance; orthographic cameras naturally use w=1.
+          const clipW = cameraProjectionMatrix.mul(vec4(viewPosition, 1)).w.abs().max(1e-4);
+          const widthPixels = this.#worldRimWidth.mul(cameraProjectionMatrix.mul(vec4(0, 1, 0, 0)).y.abs())
+            .mul(size.y).div(clipW.mul(2));
+          const stepPixels = widthPixels.div(6);
+          const distance = float(6.5).toVar();
+          // Eight radial probes per ring approximate distance to this owner's
+          // silhouette (including holes), without detecting hull creases. Sample
+          // all six rings; very narrow gaps can still fall between the probes.
+          for (let radius = 1; radius <= 6; radius++) {
+            for (let direction = 0; direction < 8; direction++) {
+              const angle = direction * Math.PI / 4;
+              const offset = vec2(Math.cos(angle), Math.sin(angle)).mul(radius).mul(stepPixels).mul(texel);
+              const sample = this.#capture.normalOwner.sample(screenUV.add(offset)).level(0);
+              // The opaque black background has alpha=1, just like owner 1.
+              // Encoded unit normals can never be all zero, so RGB distinguishes
+              // that clear value without an additional depth texture fetch.
+              const owned = sample.a.equal(this.#capture.id).and(sample.rgb.dot(sample.rgb).greaterThan(0));
+              distance.assign(distance.min(owned.select(6.5, radius - 0.5)));
+            }
+          }
+          // Fade subpixel rims instead of imposing a fixed one-pixel minimum.
+          edge.assign(float(6.5).sub(distance).div(6).clamp().mul(widthPixels.min(1)));
+        });
+        return edge;
+      })(),
       uv: screenUV,
       worldPosition,
       localPosition: this.#modelInverse.mul(vec4(worldPosition, 1)).xyz,
@@ -220,6 +263,7 @@ export class DepthShell {
     this.#capture.update(this.#visible);
     if (!this.#visible) return;
     this.#modelInverse.value.copy(this.#model.matrixWorld).invert();
+    this.#worldRimWidth.value = this.#silhouetteWidth * this.#model.matrixWorld.getMaxScaleOnAxis();
   }
 
   dispose(): void {
