@@ -123,6 +123,17 @@ export class RigInstance {
     return this.#attachments.get(slug)?.handle ?? null;
   }
 
+  /**
+   * Retire an attachment's current instance, letting its particles finish
+   * independently. The next update creates a fresh instance at the socket,
+   * so ribbons cannot connect across the restart.
+   */
+  restartAttachment(slug: string): this {
+    const live = this.#attachments.get(slug);
+    if (live) this.#releaseEffect(live, true);
+    return this;
+  }
+
   light(slug: string): THREE.PointLight | undefined {
     return this.#lights.get(slug);
   }
