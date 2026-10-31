@@ -826,8 +826,10 @@ original monorepo sketch in a few ways:
   inside the lookup's `Fn`/`Loop`. Redshift's shield style reads it as `hitDistance` / `hitAge` / `hitStrength`.
 - **Depth shells** (`src/three/depth-shell.ts`): Redshift's depth-shaped shield technique, moved here so the game and
   the studio draw shields with the same code. `DepthShellCapture` (one per camera) renders expanded (1.05 around the
-  model origin), model-only proxies into a depth/normal/owner target; each `DepthShell` is a full-screen pass that
-  reconstructs its model's surface, keeps only pixels its model owns, and depth-tests against the scene.
+  model origin), model-only proxies into a depth/normal/owner target; each `DepthShell` is a screen-space pass, fitted
+  at draw time to its proxies' projected bounds (nothing off screen; the whole screen for instanced or skinned parts,
+  whose bounds aren't known), that reconstructs its model's surface, keeps only pixels its model owns, and depth-tests
+  against the scene.
 - **Event timelines** (in the rig format and `RigInstance`): `events: { <event>: { tracks: { <track>: … } } }`, each
   track starting `at` seconds after the event: `effect` (at a socket, or at the event's position with +Z along its
   normal; optionally following the socket), `light` (a flash shaped by a curve), `shake` and `sound` (cues for the host

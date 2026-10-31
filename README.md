@@ -99,7 +99,8 @@ hullMaterial.emissiveIntensity = rig.channel("hull-flash"); // channel tracks: v
 
 `DepthShell` draws an effect on a model-shaped shell (shields that take the ship's own shape): a shared
 `DepthShellCapture` renders expanded, model-only copies of each model's depth and normals, and each shell is one
-full-screen pass that rebuilds its model's surface (position, normal, Fresnel) for your shader.
+screen-space pass, fitted to its model's on-screen bounds, that rebuilds its model's surface (position, normal,
+Fresnel) for your shader.
 
 `HitBuffer` keeps recent hits on a surface for shaders that react where they were struck (shield ripples, scorch
 marks): add hits in the model's space, call `update()` each frame, and read `hits.nearest(positionLocal)` (distance,

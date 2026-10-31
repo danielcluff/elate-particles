@@ -3,10 +3,11 @@
 //
 // A DepthShellCapture renders expanded, model-only copies of every registered
 // model into one depth/normal/owner target per camera. Each DepthShell is a
-// full-screen pass that reconstructs its model's surface from that depth,
-// keeps only pixels the model owns (overlapping ships don't borrow each
-// other's effect), and tests against the scene depth so nearer objects still
-// occlude it. Holes and separate wings keep the model's silhouette.
+// screen-space pass, fitted to its model's on-screen bounds, that reconstructs
+// its model's surface from that depth, keeps only pixels the model owns
+// (overlapping ships don't borrow each other's effect), and tests against the
+// scene depth so nearer objects still occlude it. Holes and separate wings keep
+// the model's silhouette.
 //
 //   const capture = new DepthShellCapture(camera);
 //   const shell = new DepthShell(capture, shipModel, {
@@ -16,7 +17,7 @@
 //   // every frame, after the model moved:
 //   shell.update();
 import * as THREE from "three/webgpu";
-import { cameraProjectionMatrix, cameraProjectionMatrixInverse, cameraWorldMatrix, Fn, If, float, getViewPosition, normalView, pass, positionGeometry, screenUV, textureSize, uniform, vec2, vec3, vec4 } from "three/tsl";
+import { cameraProjectionMatrix, cameraProjectionMatrixInverse, cameraWorldMatrix, Fn, If, float, getViewPosition, mix, normalView, pass, positionGeometry, screenUV, textureSize, uniform, vec2, vec3, vec4 } from "three/tsl";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Node = any;
@@ -47,7 +48,38 @@ interface CaptureHandle {
   depth: Node;
   normalOwner: Node;
   update(visible: boolean): void;
+  /** The captured copy's world bounds as of the last update; false when they can't be told (instanced or skinned parts). */
+  bounds(target: THREE.Box3): boolean;
   dispose(): void;
+}
+
+/** How far a shell's quad reaches past its projected bounds, in NDC, so edge pixels aren't lost to rounding. */
+const BOUNDS_MARGIN = 0.01;
+const FULL_SCREEN = new THREE.Vector4(-1, -1, 1, 1);
+const _corner = new THREE.Vector4();
+const _partBounds = new THREE.Box3();
+const _shellBounds = new THREE.Box3();
+const _viewProjection = new THREE.Matrix4();
+
+/**
+ * The NDC rectangle (min x, min y, max x, max y) that covers `box` on screen:
+ * zero-sized when it's empty or off screen, the whole screen when a corner is
+ * behind the camera and so can't be projected.
+ */
+export function shellScreenBounds(box: THREE.Box3, viewProjection: THREE.Matrix4, target: THREE.Vector4): THREE.Vector4 {
+  if (box.isEmpty()) return target.set(0, 0, 0, 0);
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let i = 0; i < 8; i++) {
+    _corner.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z, 1).applyMatrix4(viewProjection);
+    if (_corner.w <= 1e-4) return target.copy(FULL_SCREEN);
+    const x = _corner.x / _corner.w, y = _corner.y / _corner.w;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+  if (maxX + BOUNDS_MARGIN <= -1 || minX - BOUNDS_MARGIN >= 1 || maxY + BOUNDS_MARGIN <= -1 || minY - BOUNDS_MARGIN >= 1) return target.set(0, 0, 0, 0);
+  return target.set(Math.max(minX - BOUNDS_MARGIN, -1), Math.max(minY - BOUNDS_MARGIN, -1), Math.min(maxX + BOUNDS_MARGIN, 1), Math.min(maxY + BOUNDS_MARGIN, 1));
 }
 
 /** One depth/normal/owner capture per camera, however many shells use it. */
@@ -122,6 +154,16 @@ export class DepthShellCapture {
           if (source.morphTargetInfluences) proxy.morphTargetInfluences = source.morphTargetInfluences;
         }
       },
+      bounds: (target) => {
+        target.makeEmpty();
+        for (const { proxy } of proxies) {
+          if (!proxy.visible) continue;
+          if ((proxy as THREE.InstancedMesh).isInstancedMesh || (proxy as THREE.SkinnedMesh).isSkinnedMesh) return false;
+          if (!proxy.geometry.boundingBox) proxy.geometry.computeBoundingBox();
+          target.union(_partBounds.copy(proxy.geometry.boundingBox!).applyMatrix4(proxy.matrixWorld));
+        }
+        return true;
+      },
       dispose: () => {
         if (disposed) return;
         disposed = true;
@@ -144,16 +186,19 @@ export interface DepthShellOptions {
   scale?: number;
   /** Silhouette fade width in model units; follows distance, zoom and model scale. Default 0.25. */
   silhouetteWidth?: number;
-  /** Draw order of the full-screen pass. Default 10 (after the scene). */
+  /** Draw order of the screen-space pass. Default 10 (after the scene). */
   renderOrder?: number;
 }
 
-/** A model-shaped shell drawn by one full-screen pass. Add `object` to the scene and call `update()` every frame. */
+/** A model-shaped shell drawn by one screen-space pass over its model's bounds. Add `object` to the scene and call `update()` every frame. */
 export class DepthShell {
   readonly object: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicNodeMaterial>;
   #capture: CaptureHandle;
+  #camera: THREE.Camera;
   #model: THREE.Object3D;
   #modelInverse = uniform(new THREE.Matrix4());
+  /** The quad's NDC rectangle (min x, min y, max x, max y). */
+  #screenBounds = uniform(FULL_SCREEN.clone());
   #surface: ShellSurface;
   #visible = true;
   #silhouetteWidth: number;
@@ -164,6 +209,7 @@ export class DepthShell {
     if (!Number.isFinite(this.#silhouetteWidth) || this.#silhouetteWidth <= 0)
       throw new RangeError("Silhouette width must be finite and positive");
     this.#model = model;
+    this.#camera = capture.camera;
     this.#capture = capture.register(model, { scale: opts.scale });
     const depth = this.#capture.depth.sample(screenUV).r;
     const normalOwner = this.#capture.normalOwner.sample(screenUV);
@@ -216,8 +262,21 @@ export class DepthShell {
     this.object.frustumCulled = false;
     this.object.renderOrder = opts.renderOrder ?? 10;
     this.object.name = "DepthShell";
+    // Only the pixels the model owns can show, so the shader runs over its bounds rather than
+    // the whole screen. Fitted at draw time, with the camera the frame is really drawn from.
+    this.object.onBeforeRender = () => this.#fitToScreen();
     this.#depth = depth;
     this.#normalOwner = normalOwner;
+  }
+
+  #fitToScreen(): void {
+    const target = this.#screenBounds.value;
+    if (!this.#capture.bounds(_shellBounds)) {
+      target.copy(FULL_SCREEN);
+      return;
+    }
+    _viewProjection.multiplyMatrices(this.#camera.projectionMatrix, this.#camera.matrixWorldInverse);
+    shellScreenBounds(_shellBounds, _viewProjection, target);
   }
 
   #depth: Node;
@@ -231,7 +290,8 @@ export class DepthShell {
   #material(shader: ShellShader, depth: Node, normalOwner: Node): THREE.MeshBasicNodeMaterial {
     const out = shader(this.#surface);
     const material = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, toneMapped: false });
-    material.vertexNode = vec4(positionGeometry.xy, 0, 1);
+    const bounds = this.#screenBounds;
+    material.vertexNode = vec4(mix(bounds.xy, bounds.zw, positionGeometry.xy.mul(0.5).add(0.5)), 0, 1);
     // test against the real scene so nearer objects occlude the shell
     material.depthNode = depth;
     material.colorNode = out.color ?? vec3(1);
